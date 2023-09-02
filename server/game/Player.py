@@ -1,13 +1,15 @@
 # Define the Player class representing a player in the game
 class Player:
-    def __init__(self, hand, score):
+    def __init__(self, username, hand, score):
         """
         Initialize a player.
 
         Args:
+            username (String): The username of the player.
             hand (Hand): The player's hand of cards.
             score (int): The player's score in the game.
         """
+        self.username = username
         self.hand = hand
         self.score = score
     
@@ -37,3 +39,8 @@ class Player:
             int: The player's score.
         """
         return self.score
+    def set_score(self, score):
+        self.score = score
+    
+    def get_username(self):
+        return self.username

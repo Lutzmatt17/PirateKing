@@ -1,6 +1,6 @@
 # Define the Hand class representing a player's hand of cards
 class Hand:
-    def __init__(self, amount, cards):
+    def __init__(self, cards):
         """
         Initialize a player's hand.
 
@@ -8,7 +8,6 @@ class Hand:
             amount (int): The number of cards in the hand.
             cards (list): A list of cards in the hand.
         """
-        self.amount = amount
         self.cards = cards
 
     def set_cards(self, cards):
@@ -24,7 +23,8 @@ class Hand:
         """
         Print the cards in the hand.
         """
-        print(self.cards)
+        for card in self.cards:
+            print(card)
 
     def __str__(self):
         """
