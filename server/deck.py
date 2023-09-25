@@ -23,6 +23,9 @@ class Card:
         """
         return f"{self.number} of {self.suit} with bonus of {self.bonus} and priority of {self.priority}"
 
+    def to_dict(self):
+        return {'suit': self.suit, 'number': self.number, 'bonus': self.bonus, 'priority': self.priority}
+
 # Define the Special_Card class for special cards
 class Special_Card:
     def __init__(self, type, priority, bonus):
@@ -44,6 +47,9 @@ class Special_Card:
         """
         return f"{self.type} with bonus of {self.bonus} and priority of {self.priority}"
 
+    def to_dict(self):
+        return {'type': self.type, 'priority': self.priority, 'bonus': self.bonus}        
+
 # Define a subclass Tigress, inheriting from Special_Card
 class Tigress(Special_Card):
     def __init__(self, type, priority, bonus):
@@ -57,6 +63,9 @@ class Tigress(Special_Card):
         """
         super().__init__(type, priority, bonus)
 
+    def to_dict(self):
+        return {'type': self.type, 'priority': self.priority, 'bonus': self.bonus}    
+    
 # Define the Deck class for managing a deck of cards
 class Deck:
     def __init__(self):
@@ -140,7 +149,6 @@ class Deck:
         """
         Shuffle the deck's cards.
         """
-        import random
         random.shuffle(self.cards)
 
     def deal(self):
@@ -155,16 +163,16 @@ class Deck:
         else:
             return None  # Return None if there are no more cards in the deck
     
-    def print_deck(self):
-        """
-        Deal and print some cards from the deck.
-        """
-        for _ in range(68):
-            card = deck.deal()
-            if card:
-                print(card)  # Print the card if available
-            else:
-                print("No more cards in the deck.")  # Print a message if the deck is empty
+    # def print_deck(self):
+    #     """
+    #     Deal and print some cards from the deck.
+    #     """
+    #     for _ in range(68):
+    #         card = deck.deal()
+    #         if card:
+    #             print(card)  # Print the card if available
+    #         else:
+    #             print("No more cards in the deck.")  # Print a message if the deck is empty
 
 
 # Create a deck and shuffle it for testing

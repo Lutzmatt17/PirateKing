@@ -1,17 +1,19 @@
+import uuid
+
 # Define the Player class representing a player in the game
 class Player:
-    def __init__(self, username, hand, score):
+    def __init__(self, username):
         """
         Initialize a player.
 
         Args:
             username (String): The username of the player.
-            hand (Hand): The player's hand of cards.
-            score (int): The player's score in the game.
         """
         self.username = username
-        self.hand = hand
-        self.score = score
+        # List of cards representing the hand
+        self.hand = []
+        self.score = 0
+        self.player_id = self.generate_unique_id()
     
     def get_hand(self):
         """
@@ -31,6 +33,13 @@ class Player:
         """
         self.hand = hand
     
+    def print_hand(self):
+        print("Hand:\n")
+        i = 0
+        for card in self.hand:
+            print(str(i) + ": " + str(card))
+            i += 1
+
     def get_score(self):
         """
         Get the player's score in the game.
@@ -44,3 +53,12 @@ class Player:
     
     def get_username(self):
         return self.username
+    
+    def get_player_id(self):
+        return self.player_id
+
+    def generate_unique_id(self):
+        return str(uuid.uuid4())
+
+    def to_dict(self):
+        return {'username': self.username, 'hand': self.hand, 'score': self.score, 'player_id': self.player_id}
