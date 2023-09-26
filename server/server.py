@@ -92,7 +92,6 @@ class WaitingRoom:
         self.start_game()
 
     def start_game(self):
-        time.sleep(3)
         logging.info(f"Game starting with players...\n")
         with self.players_lock:
             for player in self.players:
@@ -118,24 +117,32 @@ class Server:
         self.server_address = ("172.28.5.101", 5555)
         # list of all clients connected to the server
         self.clients = []
-        # maps each client to game id to keep track of which game they're in
-        self.client_game_map = {}
-        # maps each game id to it's respective, active game
-        self.active_games = {}
-        # Dict that holds command queues for each game
-        self.game_commands = {}
-        # Lock for game instances
-        self.game_lock = Lock()
         # Lock for accessing shared list of clients
         self.client_lock = Lock()
+        # maps each client to game id to keep track of which game they're in
+        self.client_game_map = {}
+        # lock for the client to game mapping dict
+        self.client_game_map_lock = Lock()
+        # maps each game id to it's respective, active game
+        self.active_games = {}
+        # Lock for game instances
+        self.active_games_lock = Lock()
+        # Dict that holds command queues for each game
+        self.game_commands = {}
+        # Lock for game_commands dict
+        self.game_commands_lock = Lock()
         # List of waiting rooms
         self.waiting_rooms = []
         # Room lock to keep accessing of waiting rooms by multiple clients thread safe
         self.room_lock = Lock()
-        # Acknowledgement Lock
-        self.ack_lock = Lock()
         # Acknowledgement Queue
         self.ack_queue = Queue()
+        # Acknowledgement Lock
+        self.ack_lock = Lock()
+        # Object that sets the current game state for each game based on the game_id
+        self.game_states = {}
+        # Lock for game_states object
+        self.game_states_lock = Lock()
         # tring to bind the socket to the server and throw error if it doesn't bind
         try:
             self.server_socket.bind(self.server_address)
@@ -177,16 +184,25 @@ class Server:
                         client_state = "WAITING"
                 elif client_state == "GAMEPLAY":
                     # Fetch the game_id
-                    game_id = self.client_game_map.get(client_socket)  
+                    with self.client_game_map_lock:
+                        game_id = self.client_game_map.get(client_socket)  
 
                     if game_id is None:
                         client_socket.close()
                         return
-                    
-                    command = self.decode_message(self.receive_with_length(client_socket))
-                    self.game_commands.get(game_id).put(command)
-
-                    # Let the game thread handle the rest in run_game
+                    gameplay_state = ''
+                    while gameplay_state != "GAMEOVER":
+                        with self.game_states_lock:
+                            gameplay_state = self.game_states.get(game_id)
+                        if gameplay_state == "DEALING":
+                            logging.info(f"In DEALING phase...")
+                            continue # Let game thread handle dealing
+                        elif gameplay_state == "BIDDING":
+                            logging.info(f"In BIDDING phase...")
+                            bid_command = self.decode_message(self.receive_with_length(client_socket))
+                            logging.info(f"This is what bid command is receiving...{bid_command}")
+                            with self.game_commands_lock:
+                                self.game_commands.get(game_id).put(bid_command)
                 elif client_state == "WAITING":
                     logging.info(f"Waiting for game to start...")
                     if room.has_game_started():
@@ -255,6 +271,7 @@ class Server:
                 # logging.info(f"These are the players: {game.get_players()} in room: {game.get_room()}")
                 player_socket = player.get('player_socket')
                 hand = game.deal_hand()
+                player['hand'] = hand
                 logging.info(f"Hand has been made... for player: {i}")
                 serialized_hand = self.make_message('gameplay_data', hand)
                 self.send_with_length(player_socket, serialized_hand)
@@ -287,7 +304,7 @@ class Server:
             for room in self.waiting_rooms:
                 if room.get_player_num() >= room.get_min_players() and not room.has_game_started():
                     logging.info(f"Timer started...")
-                    room.start_timer(45)
+                    room.start_timer(10)
             time.sleep(1)
 
     def process_acks(self):
@@ -299,7 +316,7 @@ class Server:
     def generate_unique_id(self):
         return str(uuid.uuid4())
 
-    def handle_client_command(game_instance, command):
+    def handle_client_command(self, game_instance, command):
         command_type = command.get('type')
         player_id = command.get('player_id')
 
@@ -309,6 +326,7 @@ class Server:
                 game_instance.play_card(player_id, card)
         elif command_type == 'BID':
             bid = command.get('data')
+            logging.info(f"This is the bid: {bid} for: {player_id}")
             if game_instance.validate_bid(player_id):
                 game_instance.make_bid(player_id, bid)
 
@@ -324,8 +342,12 @@ class Server:
     def start_game(self, room, players):
         game_id = self.generate_unique_id()
         game = Game(players, room.get_room_name(), game_id)
-        self.active_games[game_id] = game
-        self.game_commands[game_id] = Queue()
+        with self.active_games_lock:
+            self.active_games[game_id] = game
+        with self.game_commands_lock:
+            self.game_commands[game_id] = Queue()
+        with self.game_states_lock:
+            self.game_states[game_id] = ''
         for player in players:
             player_socket = player.get('player_socket')
             self.client_game_map[player_socket] = game.get_game_id()
@@ -344,14 +366,34 @@ class Server:
             if round > 1:
                 game.choose_next_dealer()
                 game.who_goes_first()
+            logging.info(f"{game.get_dealer().get('username')} is dealing round: {round}!")
+            logging.info(f"{game.get_current_player().get('username')} is playing first this round...")
+            with self.game_states_lock:
+                self.game_states[game.get_game_id()] = 'DEALING'
             self.deal_players(game)
-            room.broadcast(self.make_message('message', f"Dealt cards to players for round {round}, please make your bids now!"))
-            command_q = self.game_commands.get(game.get_id())
-            while not command_q.empty():
-                command = command_q.get()
-                self.handle_client_command(game, command)
-                
+            logging.info(f"Cards have been dealt to all players for round: {round}")
+            room.broadcast(self.make_message('message', f"Dealt cards to players in {room.get_room_name()} for round {round}, please make your bids now!"))
+            with self.game_states_lock:
+                self.game_states[game.get_game_id()] = 'BIDDING'
+            time.sleep(60)
+            with self.game_commands_lock:
+                bid_q = self.game_commands.get(game.get_game_id())
+            logging.info(f"Bids have been collected for round: {round}...")
+            while not bid_q.empty():
+                bid_command = bid_q.get()
+                self.handle_client_command(game, bid_command)
+            logging.info(f"Bids:{game.get_bids()} have been processed for round: {round}!")
+            # with self.game_states_lock:
+            #     self.game_states[game.get_game_id()] = 'PLAYING_CARDS'
 
+            # with self.game_commands_lock:
+            #     play_q = self.game_commands.get(game.get_game_id())
+
+            # while not play_q.empty():
+            #     play_command = play_q.get()
+            #     self.handle_client_command(game, play_command)
+            logging.info(f"Going to sleep... Goodnight")
+            time.sleep(100)    
             round = game.increment_round()
 
 class ServerDriver:

@@ -57,8 +57,11 @@ class Game:
     def get_dealer(self):
         return self.dealer
     
-    def get_first_player(self):
-        return self.first_player
+    def get_current_player(self):
+        return self.players[self.current_player]
+    
+    def get_bids(self):
+        return self.bids
 
     def deal_hand(self):
         """
@@ -93,10 +96,26 @@ class Game:
         else:
             validate_bid = True
         return validate_bid
+    
+    def validate_play_card(self, player_id, card):
+        if not self.is_player_turn(player_id):
+            valid_play = False
+            print("It is not your turn...")
+        else:
+            player = self.players[self.current_player]
+            if card in player.get('hand'):
+                valid_play = True
+            else:
+                valid_play = False
+                print("That card is not in your hand...")            
+        
+        return valid_play
 
-    def get_bids(self):
-        return self.bids
-
+    def play_card(self, player_id, card):
+        player = self.players[self.current_player]
+        hand = player.get('hand')
+        hand.remove(card)
+        self.trick[player_id] = card
 
     # Function that chooses the first "dealer" at random
     # among the current players in the game
