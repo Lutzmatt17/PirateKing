@@ -74,8 +74,14 @@ class Client:
     def send_message(self):
         while True:
             message = input()
-            command = json.dumps(self.create_command(message))
-            self.send_with_length(self.client, command)
+            command = self.create_command(message)
+            command_type = command.get('type')
+            if command_type == "SHOW":
+                self.player.print_hand()
+                continue
+            else:
+                command_to_send = json.dumps(command)
+                self.send_with_length(self.client, command_to_send)
     
     def decode_message(self, message):
         #  print(message)
@@ -120,6 +126,9 @@ class Client:
             bid = int(command[1])
             command_type = "BID"
             command_dict = {"type": command_type, "player_id": self.player.get_player_id(), "data": bid}
+        elif command_type == "/show":
+            command_type = "SHOW"
+            command_dict = {"type": command_type, "player_id": self.player.get_player_id(), "data": self.player.get_hand()}
         return command_dict
 
     # def receive(self):

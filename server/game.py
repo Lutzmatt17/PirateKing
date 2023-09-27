@@ -62,6 +62,9 @@ class Game:
     
     def get_bids(self):
         return self.bids
+    
+    def get_trick(self):
+        return self.trick
 
     def deal_hand(self):
         """

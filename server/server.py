@@ -194,15 +194,23 @@ class Server:
                     while gameplay_state != "GAMEOVER":
                         with self.game_states_lock:
                             gameplay_state = self.game_states.get(game_id)
+                            game_instance = self.active_games.get(game_id)
                         if gameplay_state == "DEALING":
                             logging.info(f"In DEALING phase...")
                             continue # Let game thread handle dealing
                         elif gameplay_state == "BIDDING":
                             logging.info(f"In BIDDING phase...")
-                            bid_command = self.decode_message(self.receive_with_length(client_socket))
-                            logging.info(f"This is what bid command is receiving...{bid_command}")
                             with self.game_commands_lock:
-                                self.game_commands.get(game_id).put(bid_command)
+                                if self.game_commands.get(game_id).qsize() < len(game_instance.get_players()):
+                                    bid_command = self.decode_message(self.receive_with_length(client_socket))
+                                    logging.info(f"This is what bid command is receiving...{bid_command}")
+                                    self.game_commands.get(game_id).put(bid_command)
+                        elif gameplay_state == "PLAYING_CARDS":
+                            logging.info(f"In PLAYING_CARDS phase...")
+                            play_command = self.decode_message(self.receive_with_length(client_socket))
+                            logging.info(f"This is what play command is receiving...{play_command}")
+                            with self.game_commands_lock:
+                                self.game_commands.get(game_id).put(play_command)
                 elif client_state == "WAITING":
                     logging.info(f"Waiting for game to start...")
                     if room.has_game_started():
@@ -383,15 +391,17 @@ class Server:
                 bid_command = bid_q.get()
                 self.handle_client_command(game, bid_command)
             logging.info(f"Bids:{game.get_bids()} have been processed for round: {round}!")
-            # with self.game_states_lock:
-            #     self.game_states[game.get_game_id()] = 'PLAYING_CARDS'
-
-            # with self.game_commands_lock:
-            #     play_q = self.game_commands.get(game.get_game_id())
-
-            # while not play_q.empty():
-            #     play_command = play_q.get()
-            #     self.handle_client_command(game, play_command)
+            with self.game_states_lock:
+                self.game_states[game.get_game_id()] = 'PLAYING_CARDS'
+            current_player = game.get_current_player()
+            room.broadcast(self.make_message('message', f"{current_player.get('username')}, it's your turn to play a card!"))
+            time.sleep(20)
+            with self.game_commands_lock:
+                play_q = self.game_commands.get(game.get_game_id())
+            while not play_q.empty():
+                play_command = play_q.get()
+                self.handle_client_command(game, play_command)
+            logging.info(f"{current_player.get('username')} has succesfully played a card: {game.get_trick()}")
             logging.info(f"Going to sleep... Goodnight")
             time.sleep(100)    
             round = game.increment_round()
