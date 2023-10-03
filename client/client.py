@@ -114,9 +114,8 @@ class Client:
 
         if command_type == "/play":
             card_index = int(command[1])
-            card = self.player.get_hand()[card_index]
             command_type = "PLAY_CARD"
-            command_dict = {"type": command_type, "player_id": self.player.get_player_id(), "data": card}
+            command_dict = {"type": command_type, "player_id": self.player.get_player_id(), "data": card_index}
         elif command_type =="/bid":
             bid = int(command[1])
             command_type = "BID"

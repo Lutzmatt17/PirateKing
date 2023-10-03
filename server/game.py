@@ -6,7 +6,7 @@ import copy
 class Game:
     MAX_ROUNDS = 10
 
-    def __init__(self, players, room, game_id):
+    def __init__(self, players, game_id, action_translator, action_queue, game_state_queue):
         """
         Initialize a new game of Pirate King.
 
@@ -15,11 +15,13 @@ class Game:
             round (int): The number of rounds in the game.
             player_num (int): The number of players in the game.
         """
+        self.players = players
+        self.game_id = game_id
+        self.action_translator = action_translator
+        self.action_queue = action_queue
+        self.game_state_queue = game_state_queue
         self.round = 1
         self.deck = None
-        self.game_id = game_id
-        self.players = players
-        self.room = room
         # List of cards representing a single trick
         self.trick = []
         self.tricks = {}
@@ -41,9 +43,6 @@ class Game:
 
     def get_deck(self):
         return self.deck
-    
-    def get_room(self):
-        return self.room
 
     def increment_round(self):
         self.round += 1
@@ -68,6 +67,15 @@ class Game:
     
     def get_trick(self):
         return self.trick
+    
+    def get_tricks(self):
+        return self.tricks
+    
+    def get_phase(self):
+        return self.phase
+    
+    def get_round_is_over(self):
+        return self.round_is_over
 
     def deal_hand(self):
         """
@@ -124,7 +132,6 @@ class Game:
                 new_state.phase = "BIDDING"
 
         return new_state
-
 
     def make_bid(self, player_id, bid):
         self.bids[player_id] = bid
@@ -197,3 +204,6 @@ class Game:
 
     def advance_turn(self):
         self.current_player = (self.current_player + 1) % len(self.players)
+
+    def game_loop(self):
+        pass
