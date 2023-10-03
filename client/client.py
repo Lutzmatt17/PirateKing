@@ -47,15 +47,17 @@ class Client:
                 message_type = message['type']
                 content = message['content']
 
-                if message_type not in ['message', 'countdown', 'gameplay_data']:
+                if message_type not in ['INIT', 'message', 'countdown', 'gameplay_data']:
                      print('Invalid message type')
                      continue
                 
                 match message_type:
                     case 'countdown':
                         print(f"Game starting in: {content}", end='\r')
-                    case 'message':
+                    case 'INIT':
                         self.send_acknowledgment(self.client, "Message received")
+                        print(content)
+                    case 'message':
                         print(content)
                     case 'gameplay_data':
                         try:
@@ -74,14 +76,7 @@ class Client:
     def send_message(self):
         while True:
             message = input()
-            command = self.create_command(message)
-            command_type = command.get('type')
-            if command_type == "SHOW":
-                self.player.print_hand()
-                continue
-            else:
-                command_to_send = json.dumps(command)
-                self.send_with_length(self.client, command_to_send)
+            self.send_with_length(self.client, message)
     
     def decode_message(self, message):
         #  print(message)

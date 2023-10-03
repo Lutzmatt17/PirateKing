@@ -1,6 +1,7 @@
 import socket
 import threading
 from threading import Lock
+from threading import Event
 from game import Game
 from deck import Deck
 import time
@@ -74,10 +75,10 @@ class WaitingRoom:
                 player_socket = player.get('player_socket')
                 try:
                     self.server.send_with_length(player_socket, message)
-                    ack = self.server.receive_with_length(player_socket)
-                    with self.server.ack_lock:
-                        self.server.ack_queue.put(ack)
-                    print(ack)
+                    if 'INIT' in message:
+                        ack = self.server.receive_with_length(player_socket)
+                        with self.server.ack_lock:
+                            self.server.ack_queue.put(ack)
                 except socket.error as e:
                     print(str(e))
 
@@ -139,10 +140,14 @@ class Server:
         self.ack_queue = Queue()
         # Acknowledgement Lock
         self.ack_lock = Lock()
-        # Object that sets the current game state for each game based on the game_id
+        # Dict that sets the current game state for each game based on the game_id
         self.game_states = {}
         # Lock for game_states object
         self.game_states_lock = Lock()
+        # Dict to hold the event object for each game.
+        self.game_events = {}
+        # Lock for the event dict
+        self.game_events_lock = Lock()
         # tring to bind the socket to the server and throw error if it doesn't bind
         try:
             self.server_socket.bind(self.server_address)
@@ -165,7 +170,7 @@ class Server:
                     player['player_socket'] = client_socket
                     username = player.get('username')
                     logging.info(f"Received username...")
-                    find_room = self.make_message('message', "Finding a room for you...")
+                    find_room = self.make_message('INIT', "Finding a room for you...")
                     # logging.info(f"Sending message...")
                     self.send_with_length(client_socket, find_room)
                     logging.debug(f"Sent message to {client_socket.getpeername()}")
@@ -173,46 +178,31 @@ class Server:
                     ack = self.receive_with_length(client_socket)
                     with self.ack_lock:
                         self.ack_queue.put(ack)
-                    logging.debug(f"Received acknowledgement: {ack}")
 
                     room = self.find_available_room(player)
                     logging.info(f"Room found for player {player}")
-                    room.broadcast(self.make_message('message', username + " is connected to: " + room.get_room_name()))
+                    room.broadcast(self.make_message('INIT', username + " is connected to: " + room.get_room_name()))
                     if room.has_game_started():
                         client_state = "GAMEPLAY"
                     else:
                         client_state = "WAITING"
                 elif client_state == "GAMEPLAY":
                     # Fetch the game_id
-                    with self.client_game_map_lock:
-                        game_id = self.client_game_map.get(client_socket)  
+                    
+                    game_id = self.client_game_map.get(client_socket)  
+                    game_event = self.game_events.get(game_id)
 
                     if game_id is None:
                         client_socket.close()
-                        return
-                    gameplay_state = ''
-                    while gameplay_state != "GAMEOVER":
-                        with self.game_states_lock:
-                            gameplay_state = self.game_states.get(game_id)
-                            game_instance = self.active_games.get(game_id)
-                        if gameplay_state == "DEALING":
-                            logging.info(f"In DEALING phase...")
-                            continue # Let game thread handle dealing
-                        elif gameplay_state == "BIDDING":
-                            logging.info(f"In BIDDING phase...")
-                            with self.game_commands_lock:
-                                if self.game_commands.get(game_id).qsize() < len(game_instance.get_players()):
-                                    bid_command = self.decode_message(self.receive_with_length(client_socket))
-                                    logging.info(f"This is what bid command is receiving...{bid_command}")
-                                    self.game_commands.get(game_id).put(bid_command)
-                        elif gameplay_state == "PLAYING_CARDS":
-                            logging.info(f"In PLAYING_CARDS phase...")
-                            play_command = self.decode_message(self.receive_with_length(client_socket))
-                            logging.info(f"This is what play command is receiving...{play_command}")
-                            with self.game_commands_lock:
-                                self.game_commands.get(game_id).put(play_command)
+                        return False
+                    
+                    game_event.wait()
+                    command = self.receive_with_length(client_socket)
+                    self.game_commands.get(game_id).put(command)
+
                 elif client_state == "WAITING":
-                    logging.info(f"Waiting for game to start...")
+                    logging.info("Waiting for game to start...")
+                    # self.print_blinking_dots(message, client_state)
                     if room.has_game_started():
                         client_state = "GAMEPLAY"
                     continue # Keep looping until the game starts
@@ -270,6 +260,14 @@ class Server:
         message = client_socket.recv(message_length).decode()
         return message
 
+    def print_blinking_dots(self, message, gameplay_state, max_dots=6, interval=0.5):
+        num_dots = 0
+        initial_state = gameplay_state
+        while gameplay_state == initial_state:
+            print(f"\r{message}{'.' * num_dots}{' ' * (max_dots - num_dots)}", end='', flush=True)
+            num_dots = (num_dots + 1) % (max_dots + 1)
+            time.sleep(interval)
+
     def deal_players(self, game):
         """
         Deal hands to all players in the game.
@@ -324,20 +322,6 @@ class Server:
     def generate_unique_id(self):
         return str(uuid.uuid4())
 
-    def handle_client_command(self, game_instance, command):
-        command_type = command.get('type')
-        player_id = command.get('player_id')
-
-        if command_type == 'PLAY_CARD':
-            card = command.get('data')
-            if game_instance.validate_play_card(player_id, card): 
-                game_instance.play_card(player_id, card)
-        elif command_type == 'BID':
-            bid = command.get('data')
-            logging.info(f"This is the bid: {bid} for: {player_id}")
-            if game_instance.validate_bid(player_id):
-                game_instance.make_bid(player_id, bid)
-
     def event_timer(self, t):
         while t >= 0:
             mins, secs = divmod(t, 60)
@@ -366,7 +350,7 @@ class Server:
     def run_game(self, game, room):
         # implement game logic here
         round = game.get_round()
-        while round <= game.get_max_rounds():
+        while True:
             logging.info(f"Starting round {game.get_round()}")
             deck = Deck()
             game.set_deck(deck)
