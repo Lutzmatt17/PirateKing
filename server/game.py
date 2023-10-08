@@ -1,12 +1,13 @@
 from deck import Deck
 import random
 import copy
+import time
 
 # Define the Game class to manage the Pirate King card game
 class Game:
     MAX_ROUNDS = 10
 
-    def __init__(self, players, game_id, action_translator, action_queue, game_state_queue):
+    def __init__(self, players, game_id, action_translator, game_state_dict, game_state_acks_queue):
         """
         Initialize a new game of Pirate King.
 
@@ -18,19 +19,22 @@ class Game:
         self.players = players
         self.game_id = game_id
         self.action_translator = action_translator
-        self.action_queue = action_queue
-        self.game_state_queue = game_state_queue
+        self.game_state_dict = game_state_dict
+        self.game_state_acks_queue = game_state_acks_queue
         self.round = 1
         self.deck = None
         # List of cards representing a single trick
         self.trick = []
         self.tricks = {}
         self.bids = {}
+        self.hands = {}
+        self.trick_winner = {}
         self.dealer = random.choice(self.players)
         # Index that keeps track of whose turn it is
         self.current_player = self.who_goes_first()
-        self.phase = "DEALING"
+        self.phase = ""
         self.round_is_over = False
+        self.leading_suit = ''
 
     def set_players(self, players):
         self.players = players
@@ -76,6 +80,35 @@ class Game:
     
     def get_round_is_over(self):
         return self.round_is_over
+    
+    def get_hands(self):
+        return self.hands
+    
+    def get_trick_winner(self):
+        return self.trick_winner
+    
+    def __deepcopy__(self, memo):
+
+        new_instance = copy.copy(self)
+        new_instance.players = copy.deepcopy(self.players, memo)
+        new_instance.game_id = copy.deepcopy(self.game_id, memo)
+        new_instance.round = copy.deepcopy(self.round, memo)
+        new_instance.deck = copy.deepcopy(self.deck, memo)
+        new_instance.trick = copy.deepcopy(self.trick, memo)
+        new_instance.tricks = copy.deepcopy(self.tricks, memo)
+        new_instance.bids = copy.deepcopy(self.bids, memo)
+        new_instance.hands = copy.deepcopy(self.hands, memo)
+        new_instance.trick_winner = copy.deepcopy(self.trick_winner, memo)
+        new_instance.dealer = copy.deepcopy(self.dealer, memo)
+        new_instance.current_player = copy.deepcopy(self.current_player, memo)
+        new_instance.phase = copy.deepcopy(self.phase, memo)
+        new_instance.round_is_over = copy.deepcopy(self.round_is_over, memo)
+        new_instance.leading_suit = copy.deepcopy(self.leading_suit, memo)
+
+        memo[id(self)] = new_instance
+
+        return new_instance
+
 
     def deal_hand(self):
         """
@@ -94,26 +127,59 @@ class Game:
             hand.append(card_dict)
         return hand
 
+    def deal_cards(self):
+        print(f"Dealing cards...")
+        for player in self.players:
+            player_id = player.get('player_id')
+            hand = self.deal_hand()
+            self.hands[player_id] = hand
 
-    def game_reducer(self, action):
-        if not self.validate_action(action):
-            return False
+    def game_reducer(self, action=None):
+        # if action is not None:
+        #     if not self.validate_action(action):
+        #         return False
 
         new_state = copy.deepcopy(self)
 
-        if self.phase == "DEALING":
-            if action['type'] == 'DEAL_CARDS':
-                new_state.deal_cards()
-                new_state.phase = "BIDDING" 
-        elif self.phase == "BIDDING":
-            if action['type'] == 'MAKE_BID':
-                new_state.make_bid(action['player_index'], action['bid_amount'])
-
+        if new_state.phase == "STARTING":
+            # print(f"Starting...")
+            new_state.init_round_variables()
+            state_to_send = new_state.action_translator.game_state_to_network(new_state)
+            new_state.game_state_dict['game_state'] = state_to_send
+            new_state.action_translator.get_send_game_state_flag().set()
+            # new_state.game_state_dict.put(state_to_send)
+            # print(self.game_state_dict.get('game_state'))
+            if self.can_advance_game_state():
+                new_state.phase = "DEALING"
+        elif new_state.phase == "DEALING":
+            new_state.deal_cards()
+            state_to_send = new_state.action_translator.game_state_to_network(new_state)
+            new_state.game_state_dict['game_state'] = state_to_send
+            new_state.action_translator.get_send_game_state_flag().set()
+            # new_state.game_state_dict.put(state_to_send)
+            if new_state.can_advance_game_state():
+                new_state.phase = "START_BIDDING" 
+       
+        elif new_state.phase == "START_BIDDING":
+            state_to_send = new_state.action_translator.game_state_to_network(new_state)
+            new_state.game_state_dict['game_state'] = state_to_send
+            new_state.action_translator.get_send_game_state_flag().set()
+            new_state.phase = "BIDDING"
+        elif new_state.phase == "BIDDING":
+            if action['type'] == 'BID':
+                new_state.make_bid(action['player_id'], action['bid'])
             # Check if bidding is over and move to the next phase
-            if all(player.bid > 0 for player in new_state.players):
-                new_state.phase = "PLAYING"
-
-        elif self.phase == "PLAYING":
+            if len(new_state.get_bids()) == len(new_state.get_players()):
+                state_to_send = new_state.action_translator.game_state_to_network(new_state)
+                new_state.game_state_dict['game_state'] = state_to_send
+                new_state.action_translator.get_send_game_state_flag().set()
+                new_state.phase = "START_PLAYING"
+        elif new_state.phase == "START_PLAYING":
+            state_to_send = new_state.action_translator.game_state_to_network(new_state)
+            new_state.game_state_dict['game_state'] = state_to_send
+            new_state.action_translator.get_send_game_state_flag().set()
+            new_state.phase = "PLAYING"
+        elif new_state.phase == "PLAYING":
             if action['type'] == 'PLAY_CARD':
                 new_state.play_card(action['player_index'], action['card'])
 
@@ -121,17 +187,31 @@ class Game:
             if len(new_state.current_trick) == len(new_state.players):
                 new_state.phase = "RESOLVING"
 
-        elif self.phase == "RESOLVING":
+        elif new_state.phase == "RESOLVING":
             if action['type'] == 'RESOLVE_TRICK':
                 new_state.resolve_trick()
 
             # Check if the round is over and move to the next phase or round
             # Logic to check round completion goes here
-            if self.round_is_over:
+            if new_state.round_is_over:
                 new_state.round_number += 1
                 new_state.phase = "BIDDING"
+            else:
+                new_state.phase = "START_PLAYING"
 
+        # new_state.action_translator.get_send_game_state_flag().clear()
         return new_state
+
+    def can_advance_game_state(self):
+        while not self.game_state_acks_queue.full():
+            pass
+        
+        acks_list = []
+        while not self.game_state_acks_queue.empty():
+            game_state_ack = self.game_state_acks_queue.get() 
+            acks_list.append(game_state_ack)
+        
+        return all(ack == True for ack in acks_list)
 
     def make_bid(self, player_id, bid):
         self.bids[player_id] = bid
@@ -188,7 +268,7 @@ class Game:
 
     def who_goes_first(self):
         dealer_index = self.players.index(self.dealer)
-           # If the current dealer is not the last player in the list,
+        # If the current dealer is not the last player in the list,
         # add 1 to the index to find the next one.
         if dealer_index < (len(self.players) - 1):
             first_player = self.players[dealer_index + 1]
@@ -205,5 +285,71 @@ class Game:
     def advance_turn(self):
         self.current_player = (self.current_player + 1) % len(self.players)
 
-    def game_loop(self):
-        pass
+    def init_round_variables(self):
+        self.tricks = {}
+        self.bids = {}
+        self.round_is_over = False
+        self.set_deck(Deck())
+    
+    def start_round(self):
+        self.phase = "STARTING"
+        new_state = self.game_reducer()
+        if new_state:
+            self.__dict__ = new_state.__dict__
+
+    def start_dealing_phase(self):
+        # print(f"Dealing cards...")
+        new_state = self.game_reducer()
+        if new_state:
+            self.__dict__ = new_state.__dict__
+
+    def start_bidding_phase(self, action_queue):
+        # print(f"Started bidding phase...")
+        new_state = self.game_reducer()
+
+        while not action_queue.full():
+            pass
+
+        if new_state:
+            self.__dict__ = new_state.__dict__
+
+    def accept_bids(self, action_queue):
+        while not action_queue.empty():
+            action = action_queue.get()
+            new_state = self.game_reducer(action)
+            if new_state:
+                self.__dict__ = new_state.__dict__
+
+    def start_playing_phase(self):
+        new_state = self.game_reducer()
+        if new_state:
+            self.__dict__ = new_state.__dict__
+    
+    def play_round(self, action_queue):
+        while not self.round_is_over:
+            if self.phase == "RESOLVING":
+                self.game_reducer()
+                # Make current player = trick winner
+                self.start_playing_phase()
+            else:
+                self.advance_turn()
+
+            while action_queue.empty():
+                pass
+
+            if not action_queue.empty():
+                action = action_queue.get()
+                new_state = self.game_reducer(action)
+                if new_state:
+                    self.__dict__ = new_state.__dict__
+
+    def game_loop(self, action_queue):
+        while self.round < self.MAX_ROUNDS:
+            # self.round += 1
+            message = f"Starting round {self.round}"
+            # print(message)
+            self.start_round()
+            self.start_dealing_phase()
+            self.start_bidding_phase(action_queue)
+            self.accept_bids(action_queue)
+            self.start_playing_phase()

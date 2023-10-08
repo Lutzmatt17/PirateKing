@@ -10,10 +10,14 @@ import uuid
 logging.basicConfig(level=logging.DEBUG)
 
 class Client:
+    servers = {'Laptop': "172.28.5.101",
+               'Desktop': "192.168.86.34"}
+    laptop = servers.get('Laptop')
+    desktop = servers.get('Desktop')
     def __init__(self):
         username = input("Please enter your username: ")
         self.player = Player(username)
-        self.server = "172.28.5.101"
+        self.server = self.desktop
         self.port = 5555
         self.addr = (self.server, self.port)
         self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -63,8 +67,13 @@ class Client:
                         try:
                             # logging.info(f"Received Hand: {content}")
                             # self.send_acknowledgment(self.client, "Gameplay data received")
-                            self.player.set_hand(content)
-                            self.player.print_hand()  
+                            # self.player.set_hand(content)
+                            # self.player.print_hand()  
+                            # print(content)
+                            processed_state = self.process_state(content)
+                            if processed_state:
+                                message = self.make_message(processed_state)
+                                self.send_acknowledgment(self.client, message)
                         except socket.error as e:
                             print(f"Failed to send data: {e}")
 
@@ -75,8 +84,10 @@ class Client:
     
     def send_message(self):
         while True:
-            message = input()
-            self.send_with_length(self.client, message)
+            user_input = input()
+            message = {'type': 'action', 'payload': user_input}
+            command_to_send = self.make_message(message)
+            self.send_with_length(self.client, command_to_send)
     
     def decode_message(self, message):
         #  print(message)
@@ -108,22 +119,41 @@ class Client:
         except socket.error as e:
             print(f"Failed to send acknowledgment: {str(e)}")
 
-    def create_command(self, command_string):
-        command = command_string.split()
-        command_type = command[0]
+    def make_message(self, message):
+        return json.dumps(message)
+    def process_state(self, state):
 
-        if command_type == "/play":
-            card_index = int(command[1])
-            command_type = "PLAY_CARD"
-            command_dict = {"type": command_type, "player_id": self.player.get_player_id(), "data": card_index}
-        elif command_type =="/bid":
-            bid = int(command[1])
-            command_type = "BID"
-            command_dict = {"type": command_type, "player_id": self.player.get_player_id(), "data": bid}
-        elif command_type == "/show":
-            command_type = "SHOW"
-            command_dict = {"type": command_type, "player_id": self.player.get_player_id(), "data": self.player.get_hand()}
-        return command_dict
+        phase = state.get('phase')
+        ack = "Game State Processed"
+        if phase == "STARTING":
+            round = state.get('round')
+            print(f"Game is starting with round: {round}")
+            return {'type': 'ack', 'payload': ack}
+        elif phase == "DEALING":
+            print(f"Dealing cards...")
+            hands = state.get('hands')
+            player_hand = hands.get(self.player.get_player_id())
+            # print(f"This is your hand: {player_hand}")
+            self.player.set_hand(player_hand)
+            self.player.print_hand()
+            return {'type': 'ack', 'payload': ack}
+        elif phase == "START_BIDDING":
+            print("Please enter your bid: ")
+        elif phase == "BIDDING":
+            bids = state.get('bids')
+            print(bids)
+        elif phase == "START_PLAYING":
+            first_player = state.get('first_player')
+            first_player_username = first_player.get('username')
+            if first_player_username == self.player.get_username():
+                print("Your turn, please play a card: ")
+            else:
+                print(f"{first_player_username}'s turn!")
+
+        elif phase == "RESOLVING":
+            winner = state.get('trick_winner')
+            winner_name = winner.get('username')
+            print(f"{winner_name} won this trick!")
 
     # def receive(self):
     #     return self.client.recv(2048).decode()

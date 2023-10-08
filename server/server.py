@@ -20,6 +20,7 @@ class WaitingRoom:
         # List of player objects containing all relevant info about each player
         self.players = []
         self.players_lock = Lock()
+        self.player_sockets = []
         self.timer_duration = 90
         self.game_started = False
         self.room_name = room_name
@@ -52,18 +53,18 @@ class WaitingRoom:
 
     # Adds a player if the room is available, in thread safe fashion. 
     # Returns True if the player was added, false if not.
-    def add_player(self, player):
+    def add_player(self, player, client_socket):
         with self.players_lock:
             room_available = self.is_available()
             if room_available:
                 self.players.append(player)
+                self.player_sockets.append(client_socket)
                 return room_available
             return room_available
 
     def broadcast_timer(self, timer):
          with self.players_lock:
-            for player in self.players:
-                player_socket = player.get('player_socket')
+            for player_socket in self.player_sockets:
                 try:
                     self.server.send_with_length(player_socket, timer)
                 except socket.error as e:
@@ -71,8 +72,7 @@ class WaitingRoom:
 
     def broadcast(self, message):
         with self.players_lock:
-            for player in self.players:
-                player_socket = player.get('player_socket')
+            for player_socket in self.player_sockets:
                 try:
                     self.server.send_with_length(player_socket, message)
                     if 'INIT' in message:
@@ -80,7 +80,7 @@ class WaitingRoom:
                         with self.server.ack_lock:
                             self.server.ack_queue.put(ack)
                 except socket.error as e:
-                    print(str(e))
+                    print(f"Socket error in broadcast: {e}")
 
     def start_timer(self, t):
         while t >= 0:
@@ -95,8 +95,7 @@ class WaitingRoom:
     def start_game(self):
         logging.info(f"Game starting with players...\n")
         with self.players_lock:
-            for player in self.players:
-                player_socket = player.get('player_socket')
+            for player_socket in self.player_sockets:
                 try:
                     print(player_socket.getpeername())
                 except socket.error as e:
@@ -104,18 +103,22 @@ class WaitingRoom:
                     player_socket.close()
 
         # Notify the server to start the game with the players
-        self.server.start_game(self, self.players)
+        self.server.start_game(self, self.players, self.player_sockets)
 
 class ActionTranslator:
     def __init__(self):
-        self.accept_commands_flag = False
-        self.send_game_state_flag = False
-
-    def set_accept_commands_flag(self, flag):
-        self.accept_commands_flag = flag
-
-    def set_send_game_state_flag(self, flag):
-        self.send_game_state_flag = flag
+        self.accept_commands_flag = threading.Event()
+        self.send_game_state_flag = threading.Event()
+        self.advance_game_state_flag = threading.Event()
+    
+    def get_accept_commands_flag(self):
+        return self.accept_commands_flag
+    
+    def get_send_game_state_flag(self):
+        return self.send_game_state_flag
+    
+    def get_advance_game_state_flag(self):
+        return self.advance_game_state_flag
 
     def network_to_game_action(self, network_command, player_id):
         command = network_command.split()
@@ -124,34 +127,55 @@ class ActionTranslator:
         if command_type == "/play":
             card_index = int(command[1])
             command_type = "PLAY_CARD"
-            game_action = {"type": command_type, "player_id": player_id, "data": card_index}
+            game_action = {"type": command_type, "player_id": player_id, "card_index": card_index}
         elif command_type =="/bid":
             bid = int(command[1])
             command_type = "BID"
-            game_action = {"type": command_type, "player_id": player_id, "data": bid}
+            game_action = {"type": command_type, "player_id": player_id, "bid": bid}
         return game_action
     
     def game_state_to_network(self, game_state):
 
-        network_action = {'round': game_state.get_round(), 
-                          'trick': game_state.get_trick(),
-                          'tricks': game_state.get_tricks(),
-                          'bids': game_state.get_bids(),
-                          'dealer': game_state.get_dealer(),
-                          'current_player': game_state.get_current_player(),
-                          'phase': game_state.get_phase(),
-                          'round_is_over': game_state.get_round_is_over()
-                        }
+        if game_state.get_phase() == "STARTING":
+            network_action = {'round': game_state.get_round(),
+                              'tricks': game_state.get_tricks(),
+                              'phase': game_state.get_phase()}
+        elif game_state.get_phase() == "DEALING":
+            network_action = {'dealer': game_state.get_dealer(),
+                              'round': game_state.get_round(),
+                              'hands': game_state.get_hands(),
+                              'phase': game_state.get_phase()}
+        elif game_state.get_phase() == "START_BIDDING":
+            network_action = {'phase': game_state.get_phase()}
+        elif game_state.get_phase() == "BIDDING":
+            network_action = {'bids': game_state.get_bids(),
+                              'phase': game_state.get_phase()}
+        elif game_state.get_phase() == "START_PLAYING":
+            network_action = {'phase': game_state.get_phase(),
+                              'first_player': game_state.get_current_player()}
+        elif game_state.get_phase() == "PLAYING":
+            network_action = {'phase': game_state.get_phase(),
+                              'current_player': game_state.get_current_player(),
+                              'trick': game_state.get_trick()}
+        elif game_state.get_phase() == "RESOLVING":
+            network_action = {'trick_winner': game_state.get_trick_winner()}
+ 
+        # self.set_send_game_state_flag(True)
 
+        # self.get_send_game_state_flag().set()
         return network_action
 
 class Server:
 
+    servers = {'Laptop': "172.28.5.101",
+                    'Desktop': "192.168.86.34"}
+    laptop = servers.get('Laptop')
+    desktop = servers.get('Desktop')
     def __init__(self):
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         # server address and port number
-        self.server_address = ("172.28.5.101", 5555)
+        self.server_address = (self.desktop, 5555)
         # list of all clients connected to the server
         self.clients = []
         # Lock for accessing shared list of clients
@@ -168,7 +192,7 @@ class Server:
         self.game_actions = {}
         # Lock for game_commands dict
         self.game_actions_lock = Lock()
-        # Dict that holds queues for translated game_states, for each game, that the client can understand
+        # Dict that holds the current translated game_states, for each game, that the client can understand
         self.game_states = {}
         # Lock for game_states dict
         self.game_states_lock = Lock()
@@ -180,6 +204,10 @@ class Server:
         self.ack_queue = Queue()
         # Acknowledgement Lock
         self.ack_lock = Lock()
+        # Dict that holds queues for each game id that contains acks that clients have received game state.
+        self.game_state_acks = {}
+        # Lock for game_state_acks dict
+        self.game_state_acks_lock = Lock()
         # Dict that holds the action translator for each game
         self.action_translators = {}
         # Lock for action_translators dict 
@@ -203,7 +231,7 @@ class Server:
                 if client_state == "INIT":
                     # logging.info(f"Receiving username...")
                     player = self.decode_message(self.receive_with_length(client_socket))
-                    player['player_socket'] = client_socket
+                    # player['player_socket'] = client_socket
                     username = player.get('username')
                     logging.info(f"Received username...")
                     find_room = self.make_message('INIT', "Finding a room for you...")
@@ -215,7 +243,7 @@ class Server:
                     with self.ack_lock:
                         self.ack_queue.put(ack)
 
-                    room = self.find_available_room(player)
+                    room = self.find_available_room(player, client_socket)
                     logging.info(f"Room found for player {player}")
                     room.broadcast(self.make_message('INIT', username + " is connected to: " + room.get_room_name()))
                     if room.has_game_started():
@@ -224,21 +252,49 @@ class Server:
                         client_state = "WAITING"
                 elif client_state == "GAMEPLAY":
                     # Fetch the game_id
-                    
-                    game_id = self.client_game_map.get(client_socket)  
+                    # logging.info("In Game...")
+                    game_id = self.client_game_map.get(client_socket)
+                    player_id = player.get('player_id')
+                    action_translator = self.action_translators.get(game_id)
 
-                    if game_id is None:
-                        client_socket.close()
-                        return False
+                    # if game_id is None:
+                    #     client_socket.close()
+                    #     return False
                     
-                    command = self.receive_with_length(client_socket)
+                    # if action_translator.get_accept_commands_flag():
+                    # action_translator.get_accept_commands_flag().wait()
+                    # command = self.receive_with_length(client_socket)
+
+                    # if action_translator.get_send_game_state_flag():
+                        # with self.game_states_lock:
+    
+                    action_translator.get_send_game_state_flag().wait()
+                    # while not self.game_states.get(game_id).empty():
+                    game_state = self.game_states.get(game_id).get('game_state')
+                    message = self.make_message('gameplay_data', game_state)
+                    logging.info(f"Sending message: {message}")
+                    self.send_with_length(client_socket, message)
+                    # Client responds to the game state update with either an acknowledgement, or an action
+                    client_response = self.decode_message(self.receive_with_length(client_socket))
+                    client_response_type = client_response.get('type')
+                    # logging.info(f"Received client response: {client_response.get('payload')}")
+                    if client_response_type == 'ack':
+                        game_state_ack_queue = self.game_state_acks.get(game_id)
+                        game_state_ack_queue.put(True)
+                    elif client_response_type == 'action':
+                        action_queue = self.game_actions.get(game_id)
+                        client_command = client_response.get('payload')
+                        game_action = action_translator.network_to_game_action(client_command, player_id)
+                        action_queue.put(game_action)
+                    # action_translator.set_send_game_state_flag(False)
+                    if action_translator.get_send_game_state_flag().is_set():
+                        action_translator.get_send_game_state_flag().clear()
 
                 elif client_state == "WAITING":
-                    logging.info("Waiting for game to start...")
+                    # logging.info("Waiting for game to start...")
                     # self.print_blinking_dots(message, client_state)
                     if room.has_game_started():
                         client_state = "GAMEPLAY"
-                    continue # Keep looping until the game starts
              
         except Exception as e:
             logging.error(f"Exception in threaded_client for player {username}: {str(e)}")
@@ -246,18 +302,18 @@ class Server:
             print(f"Lost connection for player {player}")
             client_socket.close()
 
-    def find_available_room(self, player):
+    def find_available_room(self, player, client_socket):
         with self.room_lock:
             unavailable_count = 0
             for room in self.waiting_rooms:
-                if room.add_player(player):
+                if room.add_player(player, client_socket):
                     return room
                 else:
                     unavailable_count += 1
             if unavailable_count == len(self.waiting_rooms):
                 new_room = self.make_new_room()
                 logging.info(f"New room created: {new_room.get_room_name()}")
-                new_room.add_player(player)
+                new_room.add_player(player, client_socket)
                 self.waiting_rooms.append(new_room)
                 return new_room
         
@@ -328,7 +384,7 @@ class Server:
             client_thread.start()
             current_player += 1
 
-
+    # Switch waiting rooms to being placed in a queue at some point
     def monitor_rooms(self):
         while True:
             for room in self.waiting_rooms:
@@ -355,27 +411,29 @@ class Server:
             time.sleep(1)
             t -= 1
 
-    def start_game(self, room, players):
+    def start_game(self, room, players, player_sockets):
         game_id = self.generate_unique_id()
-        with self.active_games_lock:
-            self.active_games[game_id] = game
         with self.game_actions_lock:
-            self.game_actions[game_id] = Queue()
+            self.game_actions[game_id] = Queue(maxsize=len(players))
         with self.game_states_lock:
-            self.game_states[game_id] = Queue()
+            self.game_states[game_id] = {}
         with self.action_translators_lock:
             self.action_translators[game_id] = ActionTranslator()
-        game = Game(players, game_id, self.action_translators.get(game_id), self.game_actions.get(game_id), self.game_states.get(game_id))
-        for player in players:
-            player_socket = player.get('player_socket')
+        with self.game_state_acks_lock:
+            self.game_state_acks[game_id] = Queue(maxsize=len(players))
+        game = Game(players, game_id, self.action_translators.get(game_id), self.game_states.get(game_id), self.game_state_acks.get(game_id))
+        with self.active_games_lock:
+            self.active_games[game_id] = game
+        for player_socket in player_sockets:
             self.client_game_map[player_socket] = game.get_game_id()
         room.set_game_started(True)
-        game_thread = threading.Thread(target=self.run_game, args=(game, room))
+        game_thread = threading.Thread(target=self.run_game, args=(game,))
         game_thread.start()
 
     def run_game(self, game):
         # implement game logic here
-        game.game_loop()
+        action_queue = self.game_actions.get(game.get_game_id())
+        game.game_loop(action_queue)
      
 class ServerDriver:
     def __init__(self):
