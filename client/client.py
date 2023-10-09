@@ -65,11 +65,6 @@ class Client:
                         print(content)
                     case 'gameplay_data':
                         try:
-                            # logging.info(f"Received Hand: {content}")
-                            # self.send_acknowledgment(self.client, "Gameplay data received")
-                            # self.player.set_hand(content)
-                            # self.player.print_hand()  
-                            # print(content)
                             processed_state = self.process_state(content)
                             if processed_state:
                                 message = self.make_message(processed_state)

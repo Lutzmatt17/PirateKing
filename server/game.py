@@ -24,7 +24,7 @@ class Game:
         self.round = 1
         self.deck = None
         # List of cards representing a single trick
-        self.trick = []
+        self.trick = {}
         self.tricks = {}
         self.bids = {}
         self.hands = {}
@@ -151,6 +151,7 @@ class Game:
             # print(self.game_state_dict.get('game_state'))
             if self.can_advance_game_state():
                 new_state.phase = "DEALING"
+
         elif new_state.phase == "DEALING":
             new_state.deal_cards()
             state_to_send = new_state.action_translator.game_state_to_network(new_state)
@@ -165,8 +166,9 @@ class Game:
             new_state.game_state_dict['game_state'] = state_to_send
             new_state.action_translator.get_send_game_state_flag().set()
             new_state.phase = "BIDDING"
+
         elif new_state.phase == "BIDDING":
-            if action['type'] == 'BID':
+            if action['type'] == 'BID' and new_state.validate_bid(action['player_id']):
                 new_state.make_bid(action['player_id'], action['bid'])
             # Check if bidding is over and move to the next phase
             if len(new_state.get_bids()) == len(new_state.get_players()):
@@ -174,13 +176,15 @@ class Game:
                 new_state.game_state_dict['game_state'] = state_to_send
                 new_state.action_translator.get_send_game_state_flag().set()
                 new_state.phase = "START_PLAYING"
+
         elif new_state.phase == "START_PLAYING":
             state_to_send = new_state.action_translator.game_state_to_network(new_state)
             new_state.game_state_dict['game_state'] = state_to_send
             new_state.action_translator.get_send_game_state_flag().set()
             new_state.phase = "PLAYING"
+
         elif new_state.phase == "PLAYING":
-            if action['type'] == 'PLAY_CARD':
+            if action['type'] == 'PLAY_CARD' and new_state.validate_play_card(action['player_id'], action['card_index']):
                 new_state.play_card(action['player_index'], action['card'])
 
             # Check if the trick is complete and move to resolving phase
@@ -230,18 +234,49 @@ class Game:
             validate_bid = True
         return validate_bid
     
-    def validate_play_card(self, player_id, card):
+    def validate_play_card(self, player_id, card_index):
         if not self.is_player_turn(player_id):
             valid_play = False
             print("It is not your turn...")
         else:
-            player = self.players[self.current_player]
-            if card in player.get('hand'):
-                valid_play = True
+            player_hand = self.hands.get(player_id)
+            card = player_hand.index(card_index)
+            if card in player_hand:
+                if not self.leading_suit:
+                    valid_play = True
+                    if 'suit' in card:
+                        self.leading_suit = card.get('suit')
+                    else:
+                        # Made with the assumption that type "Tigress" will never be used because her type will be set to either escape or pirate in the client
+                        if card.get('type') in ['Pirate', 'Skull King', 'Kraken', 'White Whale', 'Mermaid']:
+                            self.leading_suit = "None Pirate"
+                        else:
+                            self.leading_suit = "None Escape"
+                else:
+                    if self.leading_suit == "None Pirate":
+                        valid_play = True
+                    elif self.leading_suit == "None Escape":
+                        valid_play = True
+                        if 'suit' in card:
+                            self.leading_suit = card.get('suit')
+                        else:
+                            # Made with the assumption that type "Tigress" will never be used because her type will be set to either escape or pirate in the client
+                            if card.get('type') in ['Pirate', 'Skull King', 'Kraken', 'White Whale', 'Mermaid']:
+                                self.leading_suit = "None Pirate"
+                            else:
+                                self.leading_suit = "None Escape"
+                    else:
+                        if 'suit' in card:
+                            if card.get('suit') == self.leading_suit:
+                                valid_play = True
+                            else:
+                                valid_play = False
+                        else:
+                            valid_play = True
             else:
                 valid_play = False
                 print("That card is not in your hand...")            
-        
+
         return valid_play
 
     def play_card(self, player_id, card):
@@ -342,6 +377,44 @@ class Game:
                 new_state = self.game_reducer(action)
                 if new_state:
                     self.__dict__ = new_state.__dict__
+
+    def resolve_trick(self):
+        highest_priority = -1
+        highest_number = -1
+        for player_id, card in self.trick.items():
+            priority = card.get('priority')
+            number = card.get('number')
+            if priority > highest_priority:
+                highest_priority = priority
+                highest_number = number
+                winner = player_id
+            elif priority == highest_priority:
+                suit = card.get('suit')
+                number = card.get('number')
+                if suit == self.leading_suit and number > highest_number:
+                    highest_number = number
+                    winner = player_id
+        # Trick winner is a dict that holds the trick (array of the cards) that was won at the player_id of the winning player
+        self.trick_winner[winner] = self.trick.values()
+        
+        self.determine_tricks(winner, self.trick_winner.get(winner))
+
+        return winner
+
+    def determine_tricks(self, winner, trick):
+        if winner not in self.tricks:
+            self.tricks[winner] = {}
+        
+        # Dictionary of all tricks won for that player in a round
+        trick_dict = self.trick.get(winner)
+        # Find the number of tricks already in the dictionary to determine the nth number of the trick we're currently adding
+        trick_number = len(trick_dict)
+        # Determine trick_string name based on previously found trick_number
+        trick_string = "trick" + str(trick_number + 1)
+        # Add the new trick array with trick_string as its key
+        trick_dict[trick_string] = trick
+
+
 
     def game_loop(self, action_queue):
         while self.round < self.MAX_ROUNDS:
