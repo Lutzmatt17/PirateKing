@@ -144,6 +144,10 @@ class Client:
                 print("Your turn, please play a card: ")
             else:
                 print(f"{first_player_username}'s turn!")
+        
+        elif phase == "PLAYING":
+            current_player = state.get('current_player')
+            print(f"")
 
         elif phase == "RESOLVING":
             winner = state.get('trick_winner')

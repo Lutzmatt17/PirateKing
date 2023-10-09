@@ -87,6 +87,22 @@ class Game:
     def get_trick_winner(self):
         return self.trick_winner
     
+    def get_player_from_id(self, player_id):
+        for player in self.players:
+            if player_id in player:
+                return player
+            
+    def update_state(self, new_state):
+        if new_state:
+            self.__dict__ = new_state.__dict__
+
+    # To be called inside the reducer on the new state
+    def send_state(self):
+        state_to_send = self.action_translator.game_state_to_network(self)
+        self.game_state_dict['game_state'] = state_to_send
+        self.action_translator.get_send_game_state_flag().set()
+
+    
     def __deepcopy__(self, memo):
 
         new_instance = copy.copy(self)
@@ -144,9 +160,7 @@ class Game:
         if new_state.phase == "STARTING":
             # print(f"Starting...")
             new_state.init_round_variables()
-            state_to_send = new_state.action_translator.game_state_to_network(new_state)
-            new_state.game_state_dict['game_state'] = state_to_send
-            new_state.action_translator.get_send_game_state_flag().set()
+            new_state.send_state()
             # new_state.game_state_dict.put(state_to_send)
             # print(self.game_state_dict.get('game_state'))
             if self.can_advance_game_state():
@@ -154,17 +168,13 @@ class Game:
 
         elif new_state.phase == "DEALING":
             new_state.deal_cards()
-            state_to_send = new_state.action_translator.game_state_to_network(new_state)
-            new_state.game_state_dict['game_state'] = state_to_send
-            new_state.action_translator.get_send_game_state_flag().set()
+            new_state.send_state()
             # new_state.game_state_dict.put(state_to_send)
             if new_state.can_advance_game_state():
                 new_state.phase = "START_BIDDING" 
        
         elif new_state.phase == "START_BIDDING":
-            state_to_send = new_state.action_translator.game_state_to_network(new_state)
-            new_state.game_state_dict['game_state'] = state_to_send
-            new_state.action_translator.get_send_game_state_flag().set()
+            new_state.send_state()
             new_state.phase = "BIDDING"
 
         elif new_state.phase == "BIDDING":
@@ -172,20 +182,17 @@ class Game:
                 new_state.make_bid(action['player_id'], action['bid'])
             # Check if bidding is over and move to the next phase
             if len(new_state.get_bids()) == len(new_state.get_players()):
-                state_to_send = new_state.action_translator.game_state_to_network(new_state)
-                new_state.game_state_dict['game_state'] = state_to_send
-                new_state.action_translator.get_send_game_state_flag().set()
+                new_state.send_state()
                 new_state.phase = "START_PLAYING"
 
         elif new_state.phase == "START_PLAYING":
-            state_to_send = new_state.action_translator.game_state_to_network(new_state)
-            new_state.game_state_dict['game_state'] = state_to_send
-            new_state.action_translator.get_send_game_state_flag().set()
+            new_state.send_state()
             new_state.phase = "PLAYING"
 
         elif new_state.phase == "PLAYING":
             if action['type'] == 'PLAY_CARD' and new_state.validate_play_card(action['player_id'], action['card_index']):
                 new_state.play_card(action['player_index'], action['card'])
+                new_state.send_state()
 
             # Check if the trick is complete and move to resolving phase
             if len(new_state.current_trick) == len(new_state.players):
@@ -193,7 +200,10 @@ class Game:
 
         elif new_state.phase == "RESOLVING":
             if action['type'] == 'RESOLVE_TRICK':
-                new_state.resolve_trick()
+               winner_id = new_state.resolve_trick()
+               winner = new_state.get_player_from_id(winner_id)
+               new_state.current_player = new_state.players.index(winner) 
+               new_state.send_state()
 
             # Check if the round is over and move to the next phase or round
             # Logic to check round completion goes here
@@ -240,7 +250,7 @@ class Game:
             print("It is not your turn...")
         else:
             player_hand = self.hands.get(player_id)
-            card = player_hand.index(card_index)
+            card = player_hand[card_index]
             if card in player_hand:
                 if not self.leading_suit:
                     valid_play = True
@@ -329,14 +339,12 @@ class Game:
     def start_round(self):
         self.phase = "STARTING"
         new_state = self.game_reducer()
-        if new_state:
-            self.__dict__ = new_state.__dict__
+        self.update_state(new_state)
 
     def start_dealing_phase(self):
         # print(f"Dealing cards...")
         new_state = self.game_reducer()
-        if new_state:
-            self.__dict__ = new_state.__dict__
+        self.update_state(new_state)
 
     def start_bidding_phase(self, action_queue):
         # print(f"Started bidding phase...")
@@ -345,29 +353,21 @@ class Game:
         while not action_queue.full():
             pass
 
-        if new_state:
-            self.__dict__ = new_state.__dict__
+        self.update_state(new_state)
 
     def accept_bids(self, action_queue):
         while not action_queue.empty():
             action = action_queue.get()
             new_state = self.game_reducer(action)
-            if new_state:
-                self.__dict__ = new_state.__dict__
+            self.update_state(new_state)
 
     def start_playing_phase(self):
         new_state = self.game_reducer()
-        if new_state:
-            self.__dict__ = new_state.__dict__
+        self.update_state(new_state)
     
     def play_round(self, action_queue):
         while not self.round_is_over:
-            if self.phase == "RESOLVING":
-                self.game_reducer()
-                # Make current player = trick winner
-                self.start_playing_phase()
-            else:
-                self.advance_turn()
+            new_state = None
 
             while action_queue.empty():
                 pass
@@ -375,8 +375,16 @@ class Game:
             if not action_queue.empty():
                 action = action_queue.get()
                 new_state = self.game_reducer(action)
-                if new_state:
-                    self.__dict__ = new_state.__dict__
+
+            self.update_state(new_state)
+
+            if self.phase == "RESOLVING":
+                new_state = self.game_reducer()
+                self.start_playing_phase()
+            else:
+                self.advance_turn()
+
+            self.update_state(new_state)
 
     def resolve_trick(self):
         highest_priority = -1
@@ -413,8 +421,6 @@ class Game:
         trick_string = "trick" + str(trick_number + 1)
         # Add the new trick array with trick_string as its key
         trick_dict[trick_string] = trick
-
-
 
     def game_loop(self, action_queue):
         while self.round < self.MAX_ROUNDS:
