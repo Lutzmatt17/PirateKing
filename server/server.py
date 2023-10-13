@@ -10,6 +10,7 @@ import logging
 from datetime import datetime
 from queue import Queue
 import uuid
+import select
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -155,6 +156,7 @@ class ActionTranslator:
                               'first_player': game_state.get_current_player()}
         elif game_state.get_phase() == "PLAYING":
             network_action = {'phase': game_state.get_phase(),
+                              'previous_player': game_state.get_previous_player(),
                               'current_player': game_state.get_current_player(),
                               'trick': game_state.get_trick()}
         elif game_state.get_phase() == "RESOLVING":
@@ -270,17 +272,19 @@ class Server:
     
                     action_translator.get_send_game_state_flag().wait()
                     # while not self.game_states.get(game_id).empty():
-                    game_state = self.game_states.get(game_id).get('game_state')
+                    with self.game_states_lock:
+                        game_state = self.game_states.get(game_id).get('game_state')
                     message = self.make_message('gameplay_data', game_state)
                     logging.info(f"Sending message: {message}")
                     self.send_with_length(client_socket, message)
+                   
                     # Client responds to the game state update with either an acknowledgement, or an action
                     client_response = self.decode_message(self.receive_with_length(client_socket))
                     client_response_type = client_response.get('type')
                     # logging.info(f"Received client response: {client_response.get('payload')}")
                     if client_response_type == 'ack':
-                        game_state_ack_queue = self.game_state_acks.get(game_id)
-                        game_state_ack_queue.put(True)
+                        action_queue = self.game_actions.get(game_id)
+                        action_queue.put(client_response)
                     elif client_response_type == 'action':
                         action_queue = self.game_actions.get(game_id)
                         client_command = client_response.get('payload')

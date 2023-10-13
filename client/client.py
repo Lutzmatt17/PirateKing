@@ -17,10 +17,12 @@ class Client:
     def __init__(self):
         username = input("Please enter your username: ")
         self.player = Player(username)
+        self.game_event = None
         self.server = self.desktop
         self.port = 5555
         self.addr = (self.server, self.port)
         self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
         self.connect_to_server()
         
     def connect_to_server(self):
@@ -29,6 +31,9 @@ class Client:
             except socket.error as e:
                 logging.error(f"Socket error: {str(e)}")
                 time.sleep(5)
+
+    def set_game_event(self, game_event):
+        self.game_event = game_event
     
     # def send_chat_message(self):
     #      while True:
@@ -108,9 +113,9 @@ class Client:
 
     def send_acknowledgment(self, client_socket, ack):
         try:
-            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+            # current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
             self.send_with_length(client_socket, ack)
-            logging.info(f"Sent ack at: {current_time}")
+            # logging.info(f"Sent ack at: {current_time}")
         except socket.error as e:
             print(f"Failed to send acknowledgment: {str(e)}")
 
@@ -144,10 +149,21 @@ class Client:
                 print("Your turn, please play a card: ")
             else:
                 print(f"{first_player_username}'s turn!")
-        
+                return {'type': 'ack', 'payload': ack}
+
         elif phase == "PLAYING":
+            previous_player = state.get('previous_player')
+            previous_player_username = previous_player.get('username')
             current_player = state.get('current_player')
-            print(f"")
+            current_player_username = current_player.get('username')
+            trick = state.get('trick')
+            card = list(trick.values())[-1]
+            print(f"{previous_player_username}, played {card}")
+            if current_player_username == self.player.get_username():
+                print("Your turn, please play a card: ")
+            else:
+                print(f"{current_player_username}'s turn!")
+                return {'type': 'ack', 'payload': ack}
 
         elif phase == "RESOLVING":
             winner = state.get('trick_winner')

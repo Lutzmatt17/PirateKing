@@ -32,6 +32,7 @@ class Game:
         self.dealer = random.choice(self.players)
         # Index that keeps track of whose turn it is
         self.current_player = self.who_goes_first()
+        self.previous_player = 0
         self.phase = ""
         self.round_is_over = False
         self.leading_suit = ''
@@ -66,6 +67,9 @@ class Game:
     def get_current_player(self):
         return self.players[self.current_player]
     
+    def get_previous_player(self):
+        return self.players[self.previous_player]
+    
     def get_bids(self):
         return self.bids
     
@@ -89,7 +93,7 @@ class Game:
     
     def get_player_from_id(self, player_id):
         for player in self.players:
-            if player_id in player:
+            if player_id in player.values():
                 return player
             
     def update_state(self, new_state):
@@ -120,6 +124,7 @@ class Game:
         new_instance.phase = copy.deepcopy(self.phase, memo)
         new_instance.round_is_over = copy.deepcopy(self.round_is_over, memo)
         new_instance.leading_suit = copy.deepcopy(self.leading_suit, memo)
+        new_instance.previous_player = copy.deepcopy(self.previous_player, memo)
 
         memo[id(self)] = new_instance
 
@@ -187,29 +192,39 @@ class Game:
 
         elif new_state.phase == "START_PLAYING":
             new_state.send_state()
-            new_state.phase = "PLAYING"
+
+            if new_state.can_advance_game_state():
+                new_state.phase = "PLAYING"
 
         elif new_state.phase == "PLAYING":
             if action['type'] == 'PLAY_CARD' and new_state.validate_play_card(action['player_id'], action['card_index']):
-                new_state.play_card(action['player_index'], action['card'])
+                new_state.play_card(action['player_id'], action['card_index'])
+                new_state.previous_player = self.current_player
+                if len(new_state.trick) < len(new_state.players):
+                    new_state.advance_turn()
+                new_state.can_advance_game_state()
                 new_state.send_state()
 
             # Check if the trick is complete and move to resolving phase
-            if len(new_state.current_trick) == len(new_state.players):
+            if len(new_state.trick) == len(new_state.players):
                 new_state.phase = "RESOLVING"
 
         elif new_state.phase == "RESOLVING":
-            if action['type'] == 'RESOLVE_TRICK':
-               winner_id = new_state.resolve_trick()
-               winner = new_state.get_player_from_id(winner_id)
-               new_state.current_player = new_state.players.index(winner) 
-               new_state.send_state()
+            
+            winner_id = new_state.resolve_trick()
+            print(f"This is the winner_id: {winner_id}")
+            winner = new_state.get_player_from_id(winner_id)
+            print(f"This is the winning player: {winner}")
+            new_state.current_player = new_state.players.index(winner) 
+            new_state.send_state()
+            new_state.round_is_over = new_state.check_round_over()
+            print(f"Round is over: {new_state.round_is_over}")
 
             # Check if the round is over and move to the next phase or round
             # Logic to check round completion goes here
             if new_state.round_is_over:
-                new_state.round_number += 1
-                new_state.phase = "BIDDING"
+                new_state.round += 1
+                new_state.phase = "STARTING"
             else:
                 new_state.phase = "START_PLAYING"
 
@@ -217,16 +232,33 @@ class Game:
         return new_state
 
     def can_advance_game_state(self):
-        while not self.game_state_acks_queue.full():
-            pass
-        
-        acks_list = []
-        while not self.game_state_acks_queue.empty():
-            game_state_ack = self.game_state_acks_queue.get() 
-            acks_list.append(game_state_ack)
-        
+        if self.phase == "DEALING":
+            while not self.game_state_acks_queue.full():
+                pass
+            
+            acks_list = []
+            while not self.game_state_acks_queue.empty():
+                game_state_ack = self.game_state_acks_queue.get() 
+                acks_list.append(game_state_ack)
+        else:
+            
+            while self.game_state_acks_queue.qsize() < (self.game_state_acks_queue.full() - 1):
+                pass
+            
+            acks_list = []
+            while not self.game_state_acks_queue.empty():
+                game_state_ack = self.game_state_acks_queue.get() 
+                acks_list.append(game_state_ack)
+        # print(f"We are in phase {self.phase}")
         return all(ack == True for ack in acks_list)
+    
+    def check_round_over(self):
+        trick_sum = 0
+        for trick_dict in self.tricks.values():
+            trick_sum += len(trick_dict)
 
+        return trick_sum == self.round
+    
     def make_bid(self, player_id, bid):
         self.bids[player_id] = bid
     
@@ -289,10 +321,10 @@ class Game:
 
         return valid_play
 
-    def play_card(self, player_id, card):
-        player = self.players[self.current_player]
-        hand = player.get('hand')
-        hand.remove(card)
+    def play_card(self, player_id, card_index):
+        player_hand = self.hands.get(player_id)
+        card = player_hand[card_index]
+        player_hand.remove(card)
         self.trick[player_id] = card
 
     # Function that chooses the first "dealer" at random
@@ -380,9 +412,8 @@ class Game:
 
             if self.phase == "RESOLVING":
                 new_state = self.game_reducer()
-                self.start_playing_phase()
-            else:
-                self.advance_turn()
+                if new_state.phase == "START_PLAYING":
+                    new_state.start_playing_phase()
 
             self.update_state(new_state)
 
@@ -392,21 +423,24 @@ class Game:
         for player_id, card in self.trick.items():
             priority = card.get('priority')
             number = card.get('number')
+            # print(number)
             if priority > highest_priority:
                 highest_priority = priority
                 highest_number = number
                 winner = player_id
+                # print(winner)
             elif priority == highest_priority:
                 suit = card.get('suit')
                 number = card.get('number')
                 if suit == self.leading_suit and number > highest_number:
                     highest_number = number
                     winner = player_id
+                    # print(winner)
         # Trick winner is a dict that holds the trick (array of the cards) that was won at the player_id of the winning player
-        self.trick_winner[winner] = self.trick.values()
+        self.trick_winner = self.get_player_from_id(winner) 
         
-        self.determine_tricks(winner, self.trick_winner.get(winner))
-
+        self.determine_tricks(winner, list(self.trick.values()))
+        # print(winner)
         return winner
 
     def determine_tricks(self, winner, trick):
@@ -414,7 +448,7 @@ class Game:
             self.tricks[winner] = {}
         
         # Dictionary of all tricks won for that player in a round
-        trick_dict = self.trick.get(winner)
+        trick_dict = self.tricks.get(winner)
         # Find the number of tricks already in the dictionary to determine the nth number of the trick we're currently adding
         trick_number = len(trick_dict)
         # Determine trick_string name based on previously found trick_number
@@ -425,10 +459,11 @@ class Game:
     def game_loop(self, action_queue):
         while self.round < self.MAX_ROUNDS:
             # self.round += 1
-            message = f"Starting round {self.round}"
+            # message = f"Starting round {self.round}"
             # print(message)
             self.start_round()
             self.start_dealing_phase()
             self.start_bidding_phase(action_queue)
             self.accept_bids(action_queue)
             self.start_playing_phase()
+            self.play_round(action_queue)
