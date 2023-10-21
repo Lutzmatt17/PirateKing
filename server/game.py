@@ -7,7 +7,7 @@ import time
 class Game:
     MAX_ROUNDS = 10
 
-    def __init__(self, players, game_id, action_translator, game_state_dict, game_state_acks_queue):
+    def __init__(self, players, game_id, action_translator, game_state_dict, action_queue):
         """
         Initialize a new game of Pirate King.
 
@@ -20,7 +20,7 @@ class Game:
         self.game_id = game_id
         self.action_translator = action_translator
         self.game_state_dict = game_state_dict
-        self.game_state_acks_queue = game_state_acks_queue
+        self.action_queue = action_queue
         self.round = 1
         self.deck = None
         # List of cards representing a single trick
@@ -90,6 +90,9 @@ class Game:
     
     def get_trick_winner(self):
         return self.trick_winner
+    
+    def trick_complete(self):
+        return len(self.trick) == len(self.players)
     
     def get_player_from_id(self, player_id):
         for player in self.players:
@@ -163,12 +166,12 @@ class Game:
         new_state = copy.deepcopy(self)
 
         if new_state.phase == "STARTING":
-            # print(f"Starting...")
+            print(f"In the starting phase...")
             new_state.init_round_variables()
             new_state.send_state()
             # new_state.game_state_dict.put(state_to_send)
             # print(self.game_state_dict.get('game_state'))
-            if self.can_advance_game_state():
+            if new_state.can_advance_game_state():
                 new_state.phase = "DEALING"
 
         elif new_state.phase == "DEALING":
@@ -188,68 +191,65 @@ class Game:
             # Check if bidding is over and move to the next phase
             if len(new_state.get_bids()) == len(new_state.get_players()):
                 new_state.send_state()
-                new_state.phase = "START_PLAYING"
+                if new_state.can_advance_game_state():
+                    new_state.phase = "START_PLAYING"
 
         elif new_state.phase == "START_PLAYING":
+            # print("We are in the start playing phase...")
             new_state.send_state()
-
-            if new_state.can_advance_game_state():
-                new_state.phase = "PLAYING"
+            new_state.phase = "PLAYING"
 
         elif new_state.phase == "PLAYING":
+            print("We are in the playing phase...")
             if action['type'] == 'PLAY_CARD' and new_state.validate_play_card(action['player_id'], action['card_index']):
                 new_state.play_card(action['player_id'], action['card_index'])
                 new_state.previous_player = self.current_player
                 if len(new_state.trick) < len(new_state.players):
                     new_state.advance_turn()
-                new_state.can_advance_game_state()
+                    print(f"Advancing turn to {new_state.get_current_player().get('username')}")
+            if new_state.action_queue.empty():
                 new_state.send_state()
 
             # Check if the trick is complete and move to resolving phase
-            if len(new_state.trick) == len(new_state.players):
+            if new_state.trick_complete() and self.can_advance_game_state():
                 new_state.phase = "RESOLVING"
 
         elif new_state.phase == "RESOLVING":
-            
+            print("We are in the resolving phase...")
             winner_id = new_state.resolve_trick()
-            print(f"This is the winner_id: {winner_id}")
+            # print(f"This is the winner_id: {winner_id}")
             winner = new_state.get_player_from_id(winner_id)
             print(f"This is the winning player: {winner}")
             new_state.current_player = new_state.players.index(winner) 
+            new_state.leading_suit = ''
+            new_state.trick = {}
             new_state.send_state()
             new_state.round_is_over = new_state.check_round_over()
             print(f"Round is over: {new_state.round_is_over}")
 
             # Check if the round is over and move to the next phase or round
             # Logic to check round completion goes here
-            if new_state.round_is_over:
+            if new_state.round_is_over and new_state.can_advance_game_state():
+                print("Incrementing round.... Going into STARTING phase...")
                 new_state.round += 1
                 new_state.phase = "STARTING"
-            else:
+            elif not new_state.round_is_over and new_state.can_advance_game_state():
                 new_state.phase = "START_PLAYING"
 
         # new_state.action_translator.get_send_game_state_flag().clear()
         return new_state
 
     def can_advance_game_state(self):
-        if self.phase == "DEALING":
-            while not self.game_state_acks_queue.full():
-                pass
-            
-            acks_list = []
-            while not self.game_state_acks_queue.empty():
-                game_state_ack = self.game_state_acks_queue.get() 
-                acks_list.append(game_state_ack)
-        else:
-            
-            while self.game_state_acks_queue.qsize() < (self.game_state_acks_queue.full() - 1):
-                pass
-            
-            acks_list = []
-            while not self.game_state_acks_queue.empty():
-                game_state_ack = self.game_state_acks_queue.get() 
-                acks_list.append(game_state_ack)
-        # print(f"We are in phase {self.phase}")
+        
+        while not self.action_queue.full():
+            pass
+        
+        acks_list = []
+        while not self.action_queue.empty():
+            game_action_ack = self.action_queue.get() 
+            if game_action_ack.get('type') == 'ack':
+                acks_list.append(True)
+
         return all(ack == True for ack in acks_list)
     
     def check_round_over(self):
@@ -276,6 +276,14 @@ class Game:
             validate_bid = True
         return validate_bid
     
+    def suit_not_in_hand(self, player_id):
+        player_hand = self.hands.get(player_id)
+        for card in player_hand:
+            suit = card.get('suit')
+            if suit == self.leading_suit:
+                return False
+        return True
+       
     def validate_play_card(self, player_id, card_index):
         if not self.is_player_turn(player_id):
             valid_play = False
@@ -312,7 +320,10 @@ class Game:
                             if card.get('suit') == self.leading_suit:
                                 valid_play = True
                             else:
-                                valid_play = False
+                                if self.suit_not_in_hand(player_id):
+                                    valid_play = True
+                                else:
+                                    valid_play = False
                         else:
                             valid_play = True
             else:
@@ -363,10 +374,15 @@ class Game:
         self.current_player = (self.current_player + 1) % len(self.players)
 
     def init_round_variables(self):
+        self.leading_suit = ''
         self.tricks = {}
+        self.trick_winner = {}
+        self.trick = {}
         self.bids = {}
         self.round_is_over = False
         self.set_deck(Deck())
+        self.deck.shuffle()
+        # self.update_state()
     
     def start_round(self):
         self.phase = "STARTING"
@@ -378,18 +394,18 @@ class Game:
         new_state = self.game_reducer()
         self.update_state(new_state)
 
-    def start_bidding_phase(self, action_queue):
+    def start_bidding_phase(self):
         # print(f"Started bidding phase...")
         new_state = self.game_reducer()
 
-        while not action_queue.full():
+        while not self.action_queue.full():
             pass
 
         self.update_state(new_state)
 
-    def accept_bids(self, action_queue):
-        while not action_queue.empty():
-            action = action_queue.get()
+    def accept_bids(self):
+        while not self.action_queue.empty():
+            action = self.action_queue.get()
             new_state = self.game_reducer(action)
             self.update_state(new_state)
 
@@ -397,19 +413,19 @@ class Game:
         new_state = self.game_reducer()
         self.update_state(new_state)
     
-    def play_round(self, action_queue):
+    def play_round(self):
         while not self.round_is_over:
             new_state = None
 
-            while action_queue.empty():
+            while not self.action_queue.full():
                 pass
 
-            if not action_queue.empty():
-                action = action_queue.get()
+            while not self.action_queue.empty():
+                action = self.action_queue.get()
+                # print(f"Processing action: {action}")
                 new_state = self.game_reducer(action)
-
-            self.update_state(new_state)
-
+                self.update_state(new_state)
+            print("Out of action loop...")
             if self.phase == "RESOLVING":
                 new_state = self.game_reducer()
                 if new_state.phase == "START_PLAYING":
@@ -456,14 +472,17 @@ class Game:
         # Add the new trick array with trick_string as its key
         trick_dict[trick_string] = trick
 
-    def game_loop(self, action_queue):
+    def game_loop(self):
         while self.round < self.MAX_ROUNDS:
-            # self.round += 1
-            # message = f"Starting round {self.round}"
-            # print(message)
+            if self.round > 1:
+                print("Choosing next dealer...")
+                self.choose_next_dealer()
+                print("Choosing who goes first this round...")
+                self.current_player = self.who_goes_first()
+            
             self.start_round()
             self.start_dealing_phase()
-            self.start_bidding_phase(action_queue)
-            self.accept_bids(action_queue)
+            self.start_bidding_phase()
+            self.accept_bids()
             self.start_playing_phase()
-            self.play_round(action_queue)
+            self.play_round()

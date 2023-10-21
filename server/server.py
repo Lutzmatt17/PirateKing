@@ -158,9 +158,12 @@ class ActionTranslator:
             network_action = {'phase': game_state.get_phase(),
                               'previous_player': game_state.get_previous_player(),
                               'current_player': game_state.get_current_player(),
-                              'trick': game_state.get_trick()}
+                              'trick': game_state.get_trick(),
+                              'player_num': len(game_state.get_players())}
         elif game_state.get_phase() == "RESOLVING":
-            network_action = {'trick_winner': game_state.get_trick_winner()}
+            network_action = {'trick_winner': game_state.get_trick_winner(),
+                              'phase': game_state.get_phase(),
+                              'hands': game_state.get_hands()}
  
         # self.set_send_game_state_flag(True)
 
@@ -177,7 +180,7 @@ class Server:
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         # server address and port number
-        self.server_address = (self.desktop, 5555)
+        self.server_address = (self.laptop, 5555)
         # list of all clients connected to the server
         self.clients = []
         # Lock for accessing shared list of clients
@@ -274,19 +277,23 @@ class Server:
                     # while not self.game_states.get(game_id).empty():
                     with self.game_states_lock:
                         game_state = self.game_states.get(game_id).get('game_state')
+                    print(f"Here is the game state right now: {game_state.get('phase')}")
                     message = self.make_message('gameplay_data', game_state)
-                    logging.info(f"Sending message: {message}")
+                    # logging.info(f"Sending message: {message}")
                     self.send_with_length(client_socket, message)
+                    print("Sending state...")
                    
                     # Client responds to the game state update with either an acknowledgement, or an action
                     client_response = self.decode_message(self.receive_with_length(client_socket))
                     client_response_type = client_response.get('type')
                     # logging.info(f"Received client response: {client_response.get('payload')}")
                     if client_response_type == 'ack':
-                        action_queue = self.game_actions.get(game_id)
+                        with self.game_actions_lock:
+                            action_queue = self.game_actions.get(game_id)
                         action_queue.put(client_response)
                     elif client_response_type == 'action':
-                        action_queue = self.game_actions.get(game_id)
+                        with self.game_actions_lock:
+                            action_queue = self.game_actions.get(game_id)
                         client_command = client_response.get('payload')
                         game_action = action_translator.network_to_game_action(client_command, player_id)
                         action_queue.put(game_action)
@@ -425,7 +432,7 @@ class Server:
             self.action_translators[game_id] = ActionTranslator()
         with self.game_state_acks_lock:
             self.game_state_acks[game_id] = Queue(maxsize=len(players))
-        game = Game(players, game_id, self.action_translators.get(game_id), self.game_states.get(game_id), self.game_state_acks.get(game_id))
+        game = Game(players, game_id, self.action_translators.get(game_id), self.game_states.get(game_id), self.game_actions.get(game_id))
         with self.active_games_lock:
             self.active_games[game_id] = game
         for player_socket in player_sockets:
@@ -436,8 +443,7 @@ class Server:
 
     def run_game(self, game):
         # implement game logic here
-        action_queue = self.game_actions.get(game.get_game_id())
-        game.game_loop(action_queue)
+        game.game_loop()
      
 class ServerDriver:
     def __init__(self):

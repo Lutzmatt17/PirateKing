@@ -18,7 +18,7 @@ class Client:
         username = input("Please enter your username: ")
         self.player = Player(username)
         self.game_event = None
-        self.server = self.desktop
+        self.server = self.laptop
         self.port = 5555
         self.addr = (self.server, self.port)
         self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -142,6 +142,7 @@ class Client:
         elif phase == "BIDDING":
             bids = state.get('bids')
             print(bids)
+            return {'type': 'ack', 'payload': ack}
         elif phase == "START_PLAYING":
             first_player = state.get('first_player')
             first_player_username = first_player.get('username')
@@ -157,18 +158,28 @@ class Client:
             current_player = state.get('current_player')
             current_player_username = current_player.get('username')
             trick = state.get('trick')
+            player_num = state.get('player_num')
             card = list(trick.values())[-1]
             print(f"{previous_player_username}, played {card}")
-            if current_player_username == self.player.get_username():
-                print("Your turn, please play a card: ")
+            if len(trick) < player_num:
+                if current_player_username == self.player.get_username():
+                    print("Your turn, please play a card: ")
+                else:
+                    print(f"{current_player_username}'s turn!")
+                    return {'type': 'ack', 'payload': ack}
             else:
-                print(f"{current_player_username}'s turn!")
                 return {'type': 'ack', 'payload': ack}
 
         elif phase == "RESOLVING":
             winner = state.get('trick_winner')
             winner_name = winner.get('username')
             print(f"{winner_name} won this trick!")
+            hands = state.get('hands')
+            player_hand = hands.get(self.player.get_player_id())
+            # print(f"This is your hand: {player_hand}")
+            self.player.set_hand(player_hand)
+            self.player.print_hand()
+            return {'type': 'ack', 'payload': ack}
 
     # def receive(self):
     #     return self.client.recv(2048).decode()

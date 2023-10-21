@@ -10,7 +10,7 @@ class TestResolveTrick(unittest.TestCase):
         arg3 = Mock()
         arg4 = Mock()
         arg5 = Mock()
-        self.game_instance = Game(arg1, arg2, arg3, arg4, arg5)  # Replace with the actual class initialization
+        self.game_instance = Game(arg1, arg2, arg3, arg4, arg5)
     
     def test_highest_priority_wins(self):
         self.game_instance.trick = {
@@ -58,11 +58,26 @@ class TestResolveTrick(unittest.TestCase):
     def test_check_round_over(self):
         self.game_instance.tricks = {
             'player1': {'trick1': [{'priority': 4, 'bonus': 0, 'type': 'Skull King'}, 
+                                   {'priority': 0, 'bonus': 0, 'type': 'Escape'}, {'priority': 0, 'bonus': 0, 'type': 'Tigress'}],
+                        'trick2': [{'priority': 4, 'bonus': 0, 'type': 'Skull King'}, 
                                    {'priority': 0, 'bonus': 0, 'type': 'Escape'}, {'priority': 0, 'bonus': 0, 'type': 'Tigress'}]},
-            'player2': {},
-            'player3': {}
+            'player2': {'trick1': [{'priority': 4, 'bonus': 0, 'type': 'Skull King'}, 
+                                   {'priority': 0, 'bonus': 0, 'type': 'Escape'}, {'priority': 0, 'bonus': 0, 'type': 'Tigress'}],
+                        'trick2': [{'priority': 4, 'bonus': 0, 'type': 'Skull King'}, 
+                                   {'priority': 0, 'bonus': 0, 'type': 'Escape'}, {'priority': 0, 'bonus': 0, 'type': 'Tigress'}]},
+            'player3': {'trick1': [{'priority': 4, 'bonus': 0, 'type': 'Skull King'}, 
+                                   {'priority': 0, 'bonus': 0, 'type': 'Escape'}, {'priority': 0, 'bonus': 0, 'type': 'Tigress'}],
+                        'trick2': [{'priority': 4, 'bonus': 0, 'type': 'Skull King'}, 
+                                   {'priority': 0, 'bonus': 0, 'type': 'Escape'}, {'priority': 0, 'bonus': 0, 'type': 'Tigress'}],
+                        'trick3': [{'priority': 4, 'bonus': 0, 'type': 'Skull King'}, 
+                                   {'priority': 0, 'bonus': 0, 'type': 'Escape'}, {'priority': 0, 'bonus': 0, 'type': 'Tigress'}],
+                        'trick4': [{'priority': 4, 'bonus': 0, 'type': 'Skull King'}, 
+                                   {'priority': 0, 'bonus': 0, 'type': 'Escape'}, {'priority': 0, 'bonus': 0, 'type': 'Tigress'}],
+                        'trick5': [{'priority': 4, 'bonus': 0, 'type': 'Skull King'}, 
+                                   {'priority': 0, 'bonus': 0, 'type': 'Escape'}, {'priority': 0, 'bonus': 0, 'type': 'Tigress'}]}
         }
-        self.game_instance.round = 1
+        
+        self.game_instance.round = 9
         is_round_over = self.game_instance.check_round_over()
         self.assertEqual(is_round_over, True)
 if __name__ == '__main__':
