@@ -18,7 +18,7 @@ class Client:
         username = input("Please enter your username: ")
         self.player = Player(username)
         self.game_event = None
-        self.server = self.laptop
+        self.server = self.desktop
         self.port = 5555
         self.addr = (self.server, self.port)
         self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -179,6 +179,11 @@ class Client:
             # print(f"This is your hand: {player_hand}")
             self.player.set_hand(player_hand)
             self.player.print_hand()
+            return {'type': 'ack', 'payload': ack}
+        
+        elif phase == "CALCULATE_SCORES":
+            score_sheet = state.get('score_sheet')
+            print(f"Here are the scores for this round: {score_sheet}")
             return {'type': 'ack', 'payload': ack}
 
     # def receive(self):

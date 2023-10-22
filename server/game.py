@@ -29,6 +29,7 @@ class Game:
         self.bids = {}
         self.hands = {}
         self.trick_winner = {}
+        self.score_sheet = {}
         self.dealer = random.choice(self.players)
         # Index that keeps track of whose turn it is
         self.current_player = self.who_goes_first()
@@ -91,6 +92,9 @@ class Game:
     def get_trick_winner(self):
         return self.trick_winner
     
+    def get_score_sheet(self):
+        return self.score_sheet
+    
     def trick_complete(self):
         return len(self.trick) == len(self.players)
     
@@ -128,6 +132,7 @@ class Game:
         new_instance.round_is_over = copy.deepcopy(self.round_is_over, memo)
         new_instance.leading_suit = copy.deepcopy(self.leading_suit, memo)
         new_instance.previous_player = copy.deepcopy(self.previous_player, memo)
+        new_instance.score_sheet = copy.deepcopy(self.score_sheet, memo)
 
         memo[id(self)] = new_instance
 
@@ -230,11 +235,16 @@ class Game:
             # Check if the round is over and move to the next phase or round
             # Logic to check round completion goes here
             if new_state.round_is_over and new_state.can_advance_game_state():
-                print("Incrementing round.... Going into STARTING phase...")
                 new_state.round += 1
-                new_state.phase = "STARTING"
+                new_state.phase = "CALCULATE_SCORES"
             elif not new_state.round_is_over and new_state.can_advance_game_state():
                 new_state.phase = "START_PLAYING"
+        elif new_state.phase == "CALCULATE_SCORES":
+            new_state.calculate_round_scores()
+            new_state.send_state()
+
+            if new_state.can_advance_game_state():
+                new_state.phase = "STARTING"
 
         # new_state.action_translator.get_send_game_state_flag().clear()
         return new_state
@@ -413,6 +423,10 @@ class Game:
         new_state = self.game_reducer()
         self.update_state(new_state)
     
+    def start_calculate_score_phase(self):
+        new_state = self.game_reducer()
+        self.update_state(new_state)
+    
     def play_round(self):
         while not self.round_is_over:
             new_state = None
@@ -472,6 +486,31 @@ class Game:
         # Add the new trick array with trick_string as its key
         trick_dict[trick_string] = trick
 
+    def calculate_round_scores(self):
+        for player_id, bid in self.bids.items():
+            player = self.get_player_from_id(player_id)
+            username = player.get('username')
+            if bid == 0:
+                if len(self.tricks.get(player_id)) == 0:
+                    self.score_sheet[username] += (self.round * 10)
+                else:
+                    self.score_sheet[username] += (self.round * -10)
+            else:
+                if len(self.tricks.get(player_id)) == bid:
+                    self.score_sheet[username] += (bid * 20)
+                    total_bonus = self.calculate_bonuses(player_id)
+                    self.score_sheet[username] += total_bonus
+                else:
+                    self.score_sheet[username] += (bid * -10)
+    
+    def calculate_bonuses(self, player_id):
+        tricks_won = self.tricks.get(player_id)
+        total_bonus = 0
+        for trick in tricks_won.values():
+            for card in trick:
+                total_bonus += card.get('bonus')
+        return total_bonus
+        
     def game_loop(self):
         while self.round < self.MAX_ROUNDS:
             if self.round > 1:
@@ -486,3 +525,4 @@ class Game:
             self.accept_bids()
             self.start_playing_phase()
             self.play_round()
+            self.calculate_round_scores()

@@ -164,6 +164,9 @@ class ActionTranslator:
             network_action = {'trick_winner': game_state.get_trick_winner(),
                               'phase': game_state.get_phase(),
                               'hands': game_state.get_hands()}
+        elif game_state.get_phase() == "CALCULATE_SCORES":
+            network_action = {'score_sheet': game_state.get_score_sheet(),
+                              'phase': game_state.get_phase()}
  
         # self.set_send_game_state_flag(True)
 
@@ -180,7 +183,7 @@ class Server:
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         # server address and port number
-        self.server_address = (self.laptop, 5555)
+        self.server_address = (self.desktop, 5555)
         # list of all clients connected to the server
         self.clients = []
         # Lock for accessing shared list of clients
