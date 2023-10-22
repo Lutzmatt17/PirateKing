@@ -490,6 +490,7 @@ class Game:
         for player_id, bid in self.bids.items():
             player = self.get_player_from_id(player_id)
             username = player.get('username')
+            self.score_sheet[username] = ''
             if bid == 0:
                 if len(self.tricks.get(player_id)) == 0:
                     self.score_sheet[username] += (self.round * 10)
