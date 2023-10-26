@@ -100,8 +100,8 @@ class Client:
         # Concatenate the length prefix and the actual message
         full_message = message_length + message
         try:
-            sent = client_socket.send(full_message.encode())
-            logging.info(f"This is the number of bytes that was sent: {sent}")
+            client_socket.send(full_message.encode())
+            # logging.info(f"This is the number of bytes that was sent: {sent}")
         except BrokenPipeError as e:
             logging.error(f"Client disconnected because: {str(e)}")
             client_socket.close()

@@ -235,7 +235,6 @@ class Game:
             # Check if the round is over and move to the next phase or round
             # Logic to check round completion goes here
             if new_state.round_is_over and new_state.can_advance_game_state():
-                new_state.round += 1
                 new_state.phase = "CALCULATE_SCORES"
             elif not new_state.round_is_over and new_state.can_advance_game_state():
                 new_state.phase = "START_PLAYING"
@@ -244,6 +243,7 @@ class Game:
             new_state.send_state()
 
             if new_state.can_advance_game_state():
+                new_state.round += 1
                 new_state.phase = "STARTING"
 
         # new_state.action_translator.get_send_game_state_flag().clear()
@@ -488,19 +488,26 @@ class Game:
 
     def calculate_round_scores(self):
         for player_id, bid in self.bids.items():
+            print(f"Player id: {player_id}")
             player = self.get_player_from_id(player_id)
             username = player.get('username')
-            self.score_sheet[username] = ''
+            print(f"Username: {username}")
+            if not self.score_sheet.get(username):
+                self.score_sheet[username] = 0
             if bid == 0:
-                if len(self.tricks.get(player_id)) == 0:
+                if not self.tricks.get(player_id):
                     self.score_sheet[username] += (self.round * 10)
                 else:
                     self.score_sheet[username] += (self.round * -10)
             else:
-                if len(self.tricks.get(player_id)) == bid:
-                    self.score_sheet[username] += (bid * 20)
-                    total_bonus = self.calculate_bonuses(player_id)
-                    self.score_sheet[username] += total_bonus
+                if self.tricks.get(player_id):
+                    if len(self.tricks.get(player_id)) == bid:
+                        self.score_sheet[username] += (bid * 20)
+                        total_bonus = self.calculate_bonuses(player_id)
+                        self.score_sheet[username] += total_bonus
+                    else:
+                        num_tricks = len(self.tricks.get(player_id))
+                        self.score_sheet[username] += (abs(bid - num_tricks) * -10)
                 else:
                     self.score_sheet[username] += (bid * -10)
     
@@ -508,8 +515,16 @@ class Game:
         tricks_won = self.tricks.get(player_id)
         total_bonus = 0
         for trick in tricks_won.values():
+            skull_king = False
             for card in trick:
-                total_bonus += card.get('bonus')
+                if 'suit' in card:
+                    total_bonus += card.get('bonus')
+                else:
+                    if card.get('type') == 'Skull King':
+                        skull_king = True
+                    elif card.get('type') == 'Pirate' and skull_king:
+                        total_bonus += card.get('bonus')
+
         return total_bonus
         
     def game_loop(self):
@@ -526,4 +541,4 @@ class Game:
             self.accept_bids()
             self.start_playing_phase()
             self.play_round()
-            self.calculate_round_scores()
+            self.start_calculate_score_phase()
