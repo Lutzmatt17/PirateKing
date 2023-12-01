@@ -2,9 +2,16 @@ from deck import Deck
 import random
 import copy
 import time
+import asyncio
+
 
 # Define the Game class to manage the Pirate King card game
 class Game:
+    """
+    The Game class represents a game of Pirate King. It manages the game state, including the players, the deck of cards, 
+    the current round, and the current phase of the game. It also handles game actions such as dealing cards, accepting bids, 
+    and calculating scores.
+    """
     MAX_ROUNDS = 10
 
     def __init__(self, players, game_id, action_translator, game_state_dict, action_queue):
@@ -12,9 +19,11 @@ class Game:
         Initialize a new game of Pirate King.
 
         Args:
-            deck (Deck): The deck of cards for the game.
-            round (int): The number of rounds in the game.
-            player_num (int): The number of players in the game.
+            players (list): The list of players in the game.
+            game_id (str): The unique identifier for the game.
+            action_translator (ActionTranslator): The object that translates actions between the game and the network.
+            game_state_dict (dict): The dictionary that holds the current game state.
+            action_queue (Queue): The queue that holds the actions to be processed.
         """
         self.players = players
         self.game_id = game_id
@@ -39,82 +48,225 @@ class Game:
         self.leading_suit = ''
 
     def set_players(self, players):
+        """
+        Set the players for the game.
+
+        Args:
+            players (list): The list of players.
+        """
         self.players = players
 
     def get_players(self):
+        """
+        Get the players in the game.
+
+        Returns:
+            list: The list of players.
+        """
         return self.players
 
     def set_deck(self, deck):
+        """
+        Set the deck for the game.
+
+        Args:
+            deck (Deck): The deck of cards.
+        """
         self.deck = deck
 
     def get_deck(self):
+        """
+        Get the deck of cards in the game.
+
+        Returns:
+            Deck: The deck of cards.
+        """
         return self.deck
 
-    def increment_round(self):
+    async def increment_round(self):
+        """
+        Increment the round number by 1.
+        """
         self.round += 1
     
     def get_round(self):
+        """
+        Get the current round number.
+
+        Returns:
+            int: The current round number.
+        """
         return self.round
 
     def get_max_rounds(self):
+        """
+        Get the maximum number of rounds in the game.
+
+        Returns:
+            int: The maximum number of rounds.
+        """
         return self.MAX_ROUNDS
 
     def get_game_id(self):
+        """
+        Get the game ID.
+
+        Returns:
+            str: The game ID.
+        """
         return self.game_id
 
     def get_dealer(self):
+        """
+        Get the dealer of the game.
+
+        Returns:
+            Player: The dealer.
+        """
         return self.dealer
     
     def get_current_player(self):
+        """
+        Get the current player whose turn it is.
+
+        Returns:
+            Player: The current player.
+        """
         return self.players[self.current_player]
     
     def get_previous_player(self):
+        """
+        Get the previous player who just finished their turn.
+
+        Returns:
+            Player: The previous player.
+        """
         return self.players[self.previous_player]
     
     def get_bids(self):
+        """
+        Get the bids made by the players.
+
+        Returns:
+            dict: The bids made by the players.
+        """
         return self.bids
     
     def get_trick(self):
+        """
+        Get the current trick.
+
+        Returns:
+            dict: The current trick.
+        """
         return self.trick
     
     def get_tricks(self):
+        """
+        Get all the tricks played in the game.
+
+        Returns:
+            dict: The tricks played in the game.
+        """
         return self.tricks
     
     def get_phase(self):
+        """
+        Get the current phase of the game.
+
+        Returns:
+            str: The current phase of the game.
+        """
         return self.phase
     
     def get_round_is_over(self):
+        """
+        Check if the current round is over.
+
+        Returns:
+            bool: True if the round is over, False otherwise.
+        """
         return self.round_is_over
     
     def get_hands(self):
+        """
+        Get the hands of the players.
+
+        Returns:
+            dict: The hands of the players.
+        """
         return self.hands
     
     def get_trick_winner(self):
+        """
+        Get the winner of the current trick.
+
+        Returns:
+            Player: The winner of the current trick.
+        """
         return self.trick_winner
     
-    def get_score_sheet(self):
+    async def get_score_sheet(self):
+        """
+        Get the score sheet of the game.
+
+        Returns:
+            dict: The score sheet of the game.
+        """
         return self.score_sheet
     
     def trick_complete(self):
+        """
+        Check if the current trick is complete.
+
+        Returns:
+            bool: True if the trick is complete, False otherwise.
+        """
         return len(self.trick) == len(self.players)
     
     def get_player_from_id(self, player_id):
+        """
+        Get a player from their ID.
+
+        Args:
+            player_id (str): The ID of the player.
+
+        Returns:
+            Player: The player with the given ID.
+        """
         for player in self.players:
             if player_id in player.values():
                 return player
             
     def update_state(self, new_state):
+        """
+        Update the game state.
+
+        Args:
+            new_state (Game): The new game state.
+        """
         if new_state:
             self.__dict__ = new_state.__dict__
 
-    # To be called inside the reducer on the new state
     def send_state(self):
+        """
+        Send the game state to the network.
+        """
         state_to_send = self.action_translator.game_state_to_network(self)
         self.game_state_dict['game_state'] = state_to_send
         self.action_translator.get_send_game_state_flag().set()
 
     
     def __deepcopy__(self, memo):
+        """
+        Create a deep copy of the game.
+
+        Args:
+            memo (dict): The dictionary of already copied objects.
+
+        Returns:
+            Game: The deep copy of the game.
+        """
 
         new_instance = copy.copy(self)
         new_instance.players = copy.deepcopy(self.players, memo)
@@ -143,9 +295,6 @@ class Game:
         """
         Deal a hand of cards from the deck.
 
-        Args:
-            deck (Deck): The deck from which cards are dealt.
-
         Returns:
             list: A list of cards representing a hand.
         """
@@ -157,13 +306,25 @@ class Game:
         return hand
 
     def deal_cards(self):
+        """
+        Deal cards to all players.
+        """
         print(f"Dealing cards...")
         for player in self.players:
             player_id = player.get('player_id')
             hand = self.deal_hand()
             self.hands[player_id] = hand
 
-    def game_reducer(self, action=None):
+    async def game_reducer(self, action=None):
+        """
+        Reduce the game state based on the given action.
+
+        Args:
+            action (dict): The action to be processed.
+
+        Returns:
+            Game: The new game state.
+        """
         # if action is not None:
         #     if not self.validate_action(action):
         #         return False
@@ -174,16 +335,18 @@ class Game:
             print(f"In the starting phase...")
             new_state.init_round_variables()
             new_state.send_state()
+            print("State is sent")
             # new_state.game_state_dict.put(state_to_send)
             # print(self.game_state_dict.get('game_state'))
-            if new_state.can_advance_game_state():
+            if await new_state.can_advance_game_state():
                 new_state.phase = "DEALING"
 
         elif new_state.phase == "DEALING":
+            print("In the dealing state")
             new_state.deal_cards()
             new_state.send_state()
             # new_state.game_state_dict.put(state_to_send)
-            if new_state.can_advance_game_state():
+            if await new_state.can_advance_game_state():
                 new_state.phase = "START_BIDDING" 
        
         elif new_state.phase == "START_BIDDING":
@@ -196,7 +359,7 @@ class Game:
             # Check if bidding is over and move to the next phase
             if len(new_state.get_bids()) == len(new_state.get_players()):
                 new_state.send_state()
-                if new_state.can_advance_game_state():
+                if await new_state.can_advance_game_state():
                     new_state.phase = "START_PLAYING"
 
         elif new_state.phase == "START_PLAYING":
@@ -216,7 +379,7 @@ class Game:
                 new_state.send_state()
 
             # Check if the trick is complete and move to resolving phase
-            if new_state.trick_complete() and self.can_advance_game_state():
+            if new_state.trick_complete() and await self.can_advance_game_state():
                 new_state.phase = "RESOLVING"
 
         elif new_state.phase == "RESOLVING":
@@ -233,26 +396,30 @@ class Game:
             print(f"Round is over: {new_state.round_is_over}")
 
             # Check if the round is over and move to the next phase or round
-            # Logic to check round completion goes here
-            if new_state.round_is_over and new_state.can_advance_game_state():
+            if new_state.round_is_over and await new_state.can_advance_game_state():
                 new_state.phase = "CALCULATE_SCORES"
-            elif not new_state.round_is_over and new_state.can_advance_game_state():
+            elif not new_state.round_is_over and await new_state.can_advance_game_state():
                 new_state.phase = "START_PLAYING"
         elif new_state.phase == "CALCULATE_SCORES":
             new_state.calculate_round_scores()
             new_state.send_state()
 
-            if new_state.can_advance_game_state():
+            if await new_state.can_advance_game_state():
                 new_state.round += 1
                 new_state.phase = "STARTING"
 
         # new_state.action_translator.get_send_game_state_flag().clear()
         return new_state
 
-    def can_advance_game_state(self):
-        
+    async def can_advance_game_state(self):
+        """
+        Check if the game state can be advanced.
+
+        Returns:
+            bool: True if all actions in the queue have been acknowledged, False otherwise.
+        """
         while not self.action_queue.full():
-            pass
+            await asyncio.sleep(0)  # yield control to the event loop
         
         acks_list = []
         while not self.action_queue.empty():
@@ -263,6 +430,12 @@ class Game:
         return all(ack == True for ack in acks_list)
     
     def check_round_over(self):
+        """
+        Check if the round is over.
+
+        Returns:
+            bool: True if the sum of all tricks equals the round number, False otherwise.
+        """
         trick_sum = 0
         for trick_dict in self.tricks.values():
             trick_sum += len(trick_dict)
@@ -270,9 +443,25 @@ class Game:
         return trick_sum == self.round
     
     def make_bid(self, player_id, bid):
+        """
+        Make a bid for a player.
+
+        Args:
+            player_id (str): The ID of the player.
+            bid (int): The bid amount.
+        """
         self.bids[player_id] = bid
     
     def has_bid(self, player_id):
+        """
+        Check if a player has made a bid.
+
+        Args:
+            player_id (str): The ID of the player.
+
+        Returns:
+            bool: True if the player has made a bid, False otherwise.
+        """
         if player_id in self.bids:
             has_bid = True
         else:
@@ -280,6 +469,15 @@ class Game:
         return has_bid
     
     def validate_bid(self, player_id):
+        """
+        Validate a player's bid.
+
+        Args:
+            player_id (str): The ID of the player.
+
+        Returns:
+            bool: False if the player has already made a bid, True otherwise.
+        """
         if self.has_bid(player_id):
             validate_bid = False
         else:
@@ -287,6 +485,15 @@ class Game:
         return validate_bid
     
     def suit_not_in_hand(self, player_id):
+        """
+        Check if a player's hand does not contain the leading suit.
+
+        Args:
+            player_id (str): The ID of the player.
+
+        Returns:
+            bool: True if the player's hand does not contain the leading suit, False otherwise.
+        """
         player_hand = self.hands.get(player_id)
         for card in player_hand:
             suit = card.get('suit')
@@ -295,6 +502,16 @@ class Game:
         return True
        
     def validate_play_card(self, player_id, card_index):
+        """
+        Validate a player's card play.
+
+        Args:
+            player_id (str): The ID of the player.
+            card_index (int): The index of the card in the player's hand.
+
+        Returns:
+            bool: True if the card play is valid, False otherwise.
+        """
         if not self.is_player_turn(player_id):
             valid_play = False
             print("It is not your turn...")
@@ -342,15 +559,27 @@ class Game:
 
         return valid_play
 
+
     def play_card(self, player_id, card_index):
+        """
+        Removes a card from a player's hand and adds it to the current trick.
+
+        Args:
+            player_id (str): The ID of the player.
+            card_index (int): The index of the card in the player's hand.
+        """
         player_hand = self.hands.get(player_id)
         card = player_hand[card_index]
         player_hand.remove(card)
         self.trick[player_id] = card
 
-    # Function that chooses the first "dealer" at random
-    # among the current players in the game
     def choose_next_dealer(self):
+        """
+        Chooses the next dealer from the current players in the game.
+
+        Returns:
+            Player: The next dealer.
+        """
         current_dealer_index = self.players.index(self.dealer)
         # If the current dealer is not the last player in the list,
         # add 1 to the index to find the next one.
@@ -365,6 +594,12 @@ class Game:
         return self.dealer
 
     def who_goes_first(self):
+        """
+        Determines who goes first in the game.
+
+        Returns:
+            int: The index of the first player.
+        """
         dealer_index = self.players.index(self.dealer)
         # If the current dealer is not the last player in the list,
         # add 1 to the index to find the next one.
@@ -378,12 +613,27 @@ class Game:
         return self.players.index(first_player)
 
     def is_player_turn(self, player_id):
+        """
+        Checks if it is a player's turn.
+
+        Args:
+            player_id (str): The ID of the player.
+
+        Returns:
+            bool: True if it is the player's turn, False otherwise.
+        """
         return self.players[self.current_player].get('player_id') == player_id
 
     def advance_turn(self):
+        """
+        Advances the turn to the next player.
+        """
         self.current_player = (self.current_player + 1) % len(self.players)
 
     def init_round_variables(self):
+        """
+        Initializes the variables for a round.
+        """
         self.leading_suit = ''
         self.tricks = {}
         self.trick_winner = {}
@@ -394,60 +644,87 @@ class Game:
         self.deck.shuffle()
         # self.update_state()
     
-    def start_round(self):
+    async def start_round(self):
+        """
+        Starts a round.
+        """
         self.phase = "STARTING"
-        new_state = self.game_reducer()
+        new_state = await self.game_reducer()
         self.update_state(new_state)
 
-    def start_dealing_phase(self):
+    async def start_dealing_phase(self):
+        """
+        Starts the dealing phase.
+        """
         # print(f"Dealing cards...")
-        new_state = self.game_reducer()
+        new_state = await self.game_reducer()
         self.update_state(new_state)
 
-    def start_bidding_phase(self):
+    async def start_bidding_phase(self):
+        """
+        Starts the bidding phase.
+        """
         # print(f"Started bidding phase...")
-        new_state = self.game_reducer()
+        new_state = await self.game_reducer()
 
         while not self.action_queue.full():
-            pass
+            await asyncio.sleep(0)
 
         self.update_state(new_state)
 
-    def accept_bids(self):
+    async def accept_bids(self):
+        """
+        Accepts the bids from the players.
+        """
         while not self.action_queue.empty():
             action = self.action_queue.get()
-            new_state = self.game_reducer(action)
+            new_state = await self.game_reducer(action)
             self.update_state(new_state)
 
-    def start_playing_phase(self):
-        new_state = self.game_reducer()
+    async def start_playing_phase(self):
+        """
+        Starts the playing phase.
+        """
+        new_state = await self.game_reducer()
         self.update_state(new_state)
     
-    def start_calculate_score_phase(self):
-        new_state = self.game_reducer()
+    async def start_calculate_score_phase(self):
+        """
+        Starts the score calculation phase.
+        """
+        new_state = await self.game_reducer()
         self.update_state(new_state)
     
-    def play_round(self):
+    async def play_round(self):
+        """
+        Plays a round.
+        """
         while not self.round_is_over:
             new_state = None
 
             while not self.action_queue.full():
-                pass
+                await asyncio.sleep(0)
 
             while not self.action_queue.empty():
                 action = self.action_queue.get()
                 # print(f"Processing action: {action}")
-                new_state = self.game_reducer(action)
+                new_state = await self.game_reducer(action)
                 self.update_state(new_state)
             print("Out of action loop...")
             if self.phase == "RESOLVING":
-                new_state = self.game_reducer()
+                new_state = await self.game_reducer()
                 if new_state.phase == "START_PLAYING":
                     new_state.start_playing_phase()
 
             self.update_state(new_state)
 
     def resolve_trick(self):
+        """
+        Resolves a trick.
+
+        Returns:
+            str: The ID of the winner.
+        """
         highest_priority = -1
         highest_number = -1
         for player_id, card in self.trick.items():
@@ -474,6 +751,13 @@ class Game:
         return winner
 
     def determine_tricks(self, winner, trick):
+        """
+        Determines the tricks won by a player.
+
+        Args:
+            winner (str): The ID of the winner.
+            trick (list): The trick won.
+        """
         if winner not in self.tricks:
             self.tricks[winner] = {}
         
@@ -487,6 +771,9 @@ class Game:
         trick_dict[trick_string] = trick
 
     def calculate_round_scores(self):
+        """
+        Calculates the scores for a round.
+        """
         for player_id, bid in self.bids.items():
             print(f"Player id: {player_id}")
             player = self.get_player_from_id(player_id)
@@ -512,6 +799,15 @@ class Game:
                     self.score_sheet[username] += (bid * -10)
     
     def calculate_bonuses(self, player_id):
+        """
+        Calculates the bonuses for a player.
+
+        Args:
+            player_id (str): The ID of the player.
+
+        Returns:
+            int: The total bonus.
+        """
         tricks_won = self.tricks.get(player_id)
         total_bonus = 0
         for trick in tricks_won.values():
@@ -527,7 +823,10 @@ class Game:
 
         return total_bonus
         
-    def game_loop(self):
+    async def game_loop(self):
+        """
+        Runs the game loop.
+        """
         while self.round < self.MAX_ROUNDS:
             if self.round > 1:
                 print("Choosing next dealer...")
@@ -535,10 +834,10 @@ class Game:
                 print("Choosing who goes first this round...")
                 self.current_player = self.who_goes_first()
             
-            self.start_round()
-            self.start_dealing_phase()
-            self.start_bidding_phase()
-            self.accept_bids()
-            self.start_playing_phase()
-            self.play_round()
-            self.start_calculate_score_phase()
+            await self.start_round()
+            await self.start_dealing_phase()
+            await self.start_bidding_phase()
+            await self.accept_bids()
+            await self.start_playing_phase()
+            await self.play_round()
+            await self.start_calculate_score_phase()
