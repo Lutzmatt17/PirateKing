@@ -206,7 +206,7 @@ class Game:
         """
         return self.trick_winner
     
-    async def get_score_sheet(self):
+    def get_score_sheet(self):
         """
         Get the score sheet of the game.
 
@@ -423,7 +423,7 @@ class Game:
         
         acks_list = []
         while not self.action_queue.empty():
-            game_action_ack = self.action_queue.get() 
+            game_action_ack = await self.action_queue.get() 
             if game_action_ack.get('type') == 'ack':
                 acks_list.append(True)
 
@@ -677,7 +677,7 @@ class Game:
         Accepts the bids from the players.
         """
         while not self.action_queue.empty():
-            action = self.action_queue.get()
+            action = await self.action_queue.get()
             new_state = await self.game_reducer(action)
             self.update_state(new_state)
 
@@ -706,7 +706,7 @@ class Game:
                 await asyncio.sleep(0)
 
             while not self.action_queue.empty():
-                action = self.action_queue.get()
+                action = await self.action_queue.get()
                 # print(f"Processing action: {action}")
                 new_state = await self.game_reducer(action)
                 self.update_state(new_state)
@@ -714,7 +714,7 @@ class Game:
             if self.phase == "RESOLVING":
                 new_state = await self.game_reducer()
                 if new_state.phase == "START_PLAYING":
-                    new_state.start_playing_phase()
+                    await new_state.start_playing_phase()
 
             self.update_state(new_state)
 

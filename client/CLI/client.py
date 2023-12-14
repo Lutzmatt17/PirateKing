@@ -1,6 +1,6 @@
 import socket
 import time
-from player import Player
+from client.CLI.player import Player
 import threading
 import json
 import logging

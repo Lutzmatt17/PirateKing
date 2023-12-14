@@ -21,7 +21,7 @@ class WaitingRoom:
             room_name (str): The name of the waiting room.
         """
         self.min_players = 3
-        self.max_players = 8
+        self.max_players = 3
         # List of player objects containing all relevant info about each player
         self.players = []
         self.player_sockets = []
@@ -326,7 +326,7 @@ class WebSocketServer:
         while True:
             for room in self.waiting_rooms:
                 if room.get_player_num() >= room.get_min_players() and not room.has_game_started():
-                    room.set_game_started(True)
+                    # room.set_game_started(True)
                     await room.start_timer(10)
             await asyncio.sleep(1)
 
@@ -400,14 +400,19 @@ class WebSocketServer:
         # Add the websocket to the set of connected websockets
         self.connected.add(websocket)
         client_state = "INIT"
+        
         while True:
             try:
+                await asyncio.sleep(0.05)
                 
                 if client_state == "INIT":
+
                     print("In INIT")
-                    message = await websocket.recv()
-                    
-                    
+                    try:
+                        message = await asyncio.wait_for(websocket.recv(), timeout=1.0)
+                    except asyncio.TimeoutError:
+                        print('No message received from client within 1 second')
+                        continue  # Continue to the next iteration of the loop
                     player = self.decode_message(message)
                     username = player.get('username')
                     logging.info(f"Received username...")
@@ -415,54 +420,58 @@ class WebSocketServer:
                     await websocket.send(find_room)
                     logging.debug(f"Sent message to {websocket.remote_address}")
 
-                    ack = await websocket.recv()
-                    # async with self.ack_lock:
-                    await self.ack_queue.put(ack)
+                    # ack = await websocket.recv()
+                    # # async with self.ack_lock:
+                    # await self.ack_queue.put(ack)
 
                     room = await self.find_available_room(player, websocket)
                     #logging.info(f"Room found for player {player}")
                     await room.broadcast(self.make_message('INIT', username + " is connected to: " + room.get_room_name()))
+                    # ack = await websocket.recv()
+                    # await self.ack_queue.put(ack)
+                    print("Here")
                     if room.has_game_started():
-                        print("We're here!!!!")
                         client_state = "GAMEPLAY"
                     else:
-                        # print("We're here!!!!")
                         client_state = "WAITING"
                 elif client_state == "GAMEPLAY":
-                    
                     game_id = self.client_game_map.get(websocket)
                     player_id = player.get('player_id')
                     action_translator = self.action_translators.get(game_id)
-    
+
+                    print("Before...")
                     await action_translator.get_send_game_state_flag().wait()
+                    await asyncio.sleep(0.05)
+                    print("After...")
                     
                     # async with self.game_states_lock:
                     game_state = self.game_states.get(game_id).get('game_state')
-                    print(f"Here is the game state right now: {game_state.get('phase')}")
+                    print(f"Here is the game state right now: {game_state}")
                     message = self.make_message('gameplay_data', game_state)
                     await websocket.send(message)
-                    print("Sending state...")
-                   
-                    client_response = self.decode_message(await websocket.recv())
+                    print(message)
+                    response = await websocket.recv()
+                    client_response = self.decode_message(response)
                     client_response_type = client_response.get('type')
+                    print("Here is the response", client_response, "with type: ", client_response_type)
                     if client_response_type == 'ack':
                         # async with self.game_actions_lock:
                         action_queue = self.game_actions.get(game_id)
-                        action_queue.put(client_response)
+                        await action_queue.put(client_response)
                     elif client_response_type == 'action':
                         # async with self.game_actions_lock:
                         action_queue = self.game_actions.get(game_id)
                         client_command = client_response.get('payload')
                         game_action = action_translator.network_to_game_action(client_command, player_id)
-                        action_queue.put(game_action)
+                        await action_queue.put(game_action)
                     if action_translator.get_send_game_state_flag().is_set():
                         action_translator.get_send_game_state_flag().clear()
+                        print("Flag cleared")
 
                 elif client_state == "WAITING":
-                    # print("We're here!!")
                     if room.has_game_started():
                         client_state = "GAMEPLAY"
-             
+                
             except Exception as e:
                 logging.error(f"Exception in handle_client for player {username}: {str(e)}")
                 print(f"Lost connection for player {player}")
@@ -515,7 +524,7 @@ class WebSocketServer:
 
     def start_server(self):
         # Start the websocket server on localhost:8765
-        start_server = websockets.serve(self.handle_client, "localhost", 8765, reuse_port=True)
+        start_server = websockets.serve(self.handle_client, "192.168.86.34", 8765, reuse_port=True)
         # Run the server until it is complete
         asyncio.get_event_loop().run_until_complete(start_server)
         # Start the waiting room monitor

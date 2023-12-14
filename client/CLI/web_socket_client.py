@@ -4,7 +4,7 @@ import json
 from player import Player
 
 class WebSocketClient:
-    def __init__(self, uri="ws://localhost:8765"):
+    def __init__(self, uri="ws://192.168.86.34:8765"):
         self.uri = uri
         self.websocket = None
         username = input("Please enter your username: ")
@@ -36,7 +36,7 @@ class WebSocketClient:
                     case 'countdown':
                         print(f"Game starting in: {content}", end='\r')
                     case 'INIT':
-                        await self.send_acknowledgment("Message received")
+                        # await self.send_acknowledgment("Message received")
                         print(content)
                     case 'message':
                         print(content)
@@ -45,7 +45,9 @@ class WebSocketClient:
                             processed_state = self.process_state(content)
                             if processed_state:
                                 message = self.make_message(processed_state)
+                                print(message)
                                 await self.send_acknowledgment(message)
+                                print("Ack Sent")
                         except Exception as e:
                             print(f"Failed to send data: {e}")
             except Exception as e:
@@ -153,8 +155,8 @@ async def main():
     client = WebSocketClient()
     player = json.dumps(client.player.to_dict())
     await client.connect()
+    asyncio.create_task(client.send_message())
     await client.websocket.send(player)
     await client.receive_message()
-    asyncio.create_task(client.send_message())
-
+    
 asyncio.get_event_loop().run_until_complete(main())
