@@ -15,7 +15,7 @@ function Modal(props) {
 
   return (
     // Render a Card component to create the backdrop of the modal
-    <Card onSaveClick={props.onSaveClick} className="fixed top-0 left-0 w-full h-screen z-20 bg-white bg-opacity-50 rounded-none flex justify-center">
+    <Card onSaveLoginClick={props.onSaveLoginClick} onSavePlayClick={props.onSavePlayClick} className="fixed top-0 left-0 w-full h-screen z-20 bg-white bg-opacity-50 rounded-none flex justify-center">
       {/* Render a div element with the provided className to display the modal */}
       <div onClick={handleModalContentClick} className={modalCSS}>
         {/* Render the content of the modal */}

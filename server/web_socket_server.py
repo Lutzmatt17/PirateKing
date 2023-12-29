@@ -362,7 +362,7 @@ class WebSocketServer:
         Returns:
             WaitingRoom: The new room.
         """
-        new_room_name = "room" + str(len(self.waiting_rooms) + 1) 
+        new_room_name = "Room " + str(len(self.waiting_rooms) + 1) 
         return WaitingRoom(self, new_room_name)
     
     def make_message(self, type, content):
@@ -415,10 +415,11 @@ class WebSocketServer:
                         continue  # Continue to the next iteration of the loop
                     player = self.decode_message(message)
                     username = player.get('username')
+                    print(f"Received Player: {player}")
                     logging.info(f"Received username...")
-                    find_room = self.make_message('INIT', "Finding a room for you...")
-                    await websocket.send(find_room)
-                    logging.debug(f"Sent message to {websocket.remote_address}")
+                    # find_room = self.make_message('INIT', "Finding a room for you...")
+                    # await websocket.send(find_room)
+                    print(f"Sent message to {websocket.remote_address}")
 
                     # ack = await websocket.recv()
                     # # async with self.ack_lock:
@@ -426,7 +427,8 @@ class WebSocketServer:
 
                     room = await self.find_available_room(player, websocket)
                     #logging.info(f"Room found for player {player}")
-                    await room.broadcast(self.make_message('INIT', username + " is connected to: " + room.get_room_name()))
+                    print(f"Here is the latest player: {room.players}")
+                    await room.broadcast(self.make_message('INIT', room.players))
                     # ack = await websocket.recv()
                     # await self.ack_queue.put(ack)
                     print("Here")

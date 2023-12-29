@@ -1,6 +1,5 @@
 // Import necessary dependencies and styles
 // @ts-nocheck
-import React from 'react';
 
 // Defines a generalized card component that
 // is used throughout the application
@@ -10,7 +9,11 @@ function Card(props) {
   let cardCSS = card + props.className;
   
   const backgroundClickHandler = () => {
-    props.onSaveClick(false)
+    if (props.onSavePlayClick) {
+      props.onSavePlayClick(false);
+    } else {
+      props.onSaveLoginClick(false);
+    }
   }
   return (
     // Render a div element with the provided className

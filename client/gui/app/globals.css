@@ -8,6 +8,14 @@
   --background-end-rgb: 255, 255, 255;
 }
 
+@font-face {
+  font-family: 'Pirata-One';
+  src: url('/fonts/PirataOne-Regular.ttf') format('trueType');
+  font-weight: normal;
+  font-style: normal;
+}
+
+
 @media (prefers-color-scheme: dark) {
   :root {
     --foreground-rgb: 255, 255, 255;
